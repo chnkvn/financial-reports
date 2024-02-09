@@ -7,7 +7,7 @@
 - [ ] Allocation par secteur
 * Get data
 :properties:
-:header-args:python: :tangle data_extraction.py
+:header-args:python: :tangle src/data_extraction.py
 :end:
 - Use boursorama.com website
 - Better to use an API, but as it is a simple project, navigating the source code is the way because it is free.
@@ -45,12 +45,12 @@ class Asset:
     symbol: str
     currency: str
     name:str
-    latest: float
+    latest: float = field(converter=float)
     variation: float
     tradeDate: str = field(repr=date_to_str)
     url: str
     referenceIndex: str 
-    assetCategory: str 
+    morningstarCategory: str
     assetsComposition: dict
     sector: list
     lastDividende: dict = field(repr=replace_stringify_date_objects_iterable)
@@ -70,7 +70,7 @@ class Asset:
             data['tradeDate'],
             data['url'],
             data['referenceIndex'],
-            data['AssetCategory'],
+            data['MorningstarCategory'],
             data['AssetsComposition'],
             data['Sectors'],
             data['lastDividende'])
@@ -85,13 +85,16 @@ def unicode_escape(s:str) -> str:
     
 def extract_chart_data(soup:BeautifulSoup, id_:str ) -> dict:
     """Extract amChartData key from source code"""
-    # Find the id in source code
-    portfolio = soup.find_all('div', id=id_)
-    # Extract the tags, remove NavigableString objects
-    tags = list(chain.from_iterable(unicode_escape(x.get_text()).strip().split('\n') for x in portfolio[0].parent.contents if isinstance(x, Tag)))
-    am_chart_data = [tag for tag in tags if '"amChartData"' in tag].pop()
-    # Extract content
-    return json.loads('{'+re.search(r'"amChartData":\[\{"name":.+\]\}',am_chart_data).group())['amChartData']
+    try:
+        # Find the id in source code
+        portfolio = soup.find_all('div', id=id_)
+        # Extract the tags, remove NavigableString objects
+        tags = list(chain.from_iterable(unicode_escape(x.get_text()).strip().split('\n') for x in portfolio[0].parent.contents if isinstance(x, Tag)))
+        am_chart_data = [tag for tag in tags if '"amChartData"' in tag].pop()
+        # Extract content
+        return json.loads('{'+re.search(r'"amChartData":\[\{"name":.+\]\}',am_chart_data).group())['amChartData']
+    except IndexError as e:
+        return None
 
 def get_current_asset_data(asset:str) -> dict:
     """From an ISIN or a asset name, returns a dictionary containing:
@@ -122,26 +125,33 @@ def get_current_asset_data(asset:str) -> dict:
         data['latest'] = relevant_tag.select('span[c-instrument--last]')[0].get_text()
         data['isin'] = relevant_tag.find_all('h2', class_='\\"c-faceplate__isin\\"')[0].get_text().split(' ')[0]
         
-        data['asset'] = url_split[url_split.index('cours')-1] if 'cours' in r.url and 'boursorama.com' not in  url_split[2] else 'stock'
-        data['name'] = name
+        data['asset'] = url_split[url_split.index('cours')-1] if 'bourse' in r.url else 'stock'
+        data['name'] = unicode_escape(name)
         data['url'] = r.url
         data['currency'] = relevant_tag.find_all('span', class_ = '\\"c-faceplate__price-currency\\"').pop().get_text().strip()
         map_attributes = {
             'indice de référence':'referenceIndex',
-            'catégorie morningstar': 'AssetCategory',
+            'catégorie morningstar': 'MorningstarCategory',
             'amChartData': 'AssetsComposition'
         }
         # Init entries with null values
         for v in map_attributes.values():
             data[v] = None
-        if 'trackers' in r.url:
-            additional_info = [s.get_text().replace('\\n', '').strip() for s in soup.find_all('p', class_ = '\\"c-list-info__heading')][:2]
-            values = [s.get_text().replace('\\n', '').strip() for s in soup.find_all('p', class_ = '\\"c-list-info__value')][:2]
-            for info,value in zip(additional_info, values):
-                info = unicode_escape(info)
-                value = unicode_escape(value)
-                print(info, value)
-                data[map_attributes.get(info, info)] = value
+        if 'bourse' in r.url:
+            additional_info = soup.find_all('p', class_='\\"c-list-info__heading')
+            for i in additional_info:
+                attr = map_attributes.get(unicode_escape(i.get_text()).strip().lower(), unicode_escape(i.get_text()).strip())
+                for v in i.next_siblings:
+                    v= unicode_escape(v.get_text()).strip()
+                    if '?' in v or len(v)<1:
+                        continue
+                    elif data.get(attr, None) is None :
+                        data[attr]  =  v
+                    elif isinstance(data[attr], str):
+                        data[attr] = [data[attr]] + [v]
+                    else:
+                        data[attr].append(v)
+                            
         # Composition
         url_split.insert(-2, 'composition')
         composition_request = requests.get('/'.join(url_split))
@@ -177,22 +187,78 @@ def get_current_asset_data(asset:str) -> dict:
 ** Main :ignore:
 #+begin_src python
 if __name__ == '__main__':
-    isin = "urw"
+    isin = "FR0010177378"
     ic(Asset.from_boursorama(get_current_asset_data(isin)))
 
 #+end_src
 * Tests :ignore:
 #+begin_src python :tangle tests/tests_scraping.py :results output
+import os
+import sys
+import time
 import unittest
-from datetime import date
-from data_extraction import Asset, get_current_asset_data
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-print('Hello World')
+from financial_reports.src.data_extraction import Asset, get_current_asset_data
+
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+class TestAsset(unittest.TestCase):
+    def test_stock(self):
+        """Stock: air liquide"""
+        for search in ['air liquide', 'AI', 'FR0000120073']:
+            with self.subTest(i=search):
+                AirLiquide = Asset.from_boursorama(get_current_asset_data(search))
+                self.assertEqual(AirLiquide.asset, 'stock')
+                self.assertEqual(AirLiquide.isin,'FR0000120073')
+                self.assertEqual(AirLiquide.currency,'EUR')
+                self.assertEqual(AirLiquide.name,'AIR LIQUIDE')
+                self.assertEqual(AirLiquide.symbol, '1rPAI')
+                self.assertEqual(AirLiquide.url, 'https://www.boursorama.com/cours/1rPAI/')
+                self.assertGreaterEqual(AirLiquide.latest, 0)
+                self.assertIsNone(AirLiquide.referenceIndex)
+                self.assertIsNone(AirLiquide.morningstarCategory)
+            time.sleep(1)
+
+    def test_tracker(self):
+        """Tracker: cw8"""
+        for search in ['LU1681043599', 'CW8']:
+            with self.subTest(i=search):
+                cw8 = Asset.from_boursorama(get_current_asset_data(search))
+                self.assertEqual(cw8.asset, 'trackers')
+                self.assertEqual(cw8.isin,'LU1681043599')
+                self.assertEqual(cw8.currency,'EUR')
+                self.assertEqual(cw8.name,'AMUNDI MSCI WORLD UCITS ETF - EUR')
+                self.assertEqual(cw8.symbol, '1rTCW8')
+                self.assertEqual(cw8.url, 'https://www.boursorama.com/bourse/trackers/cours/1rTCW8/')
+                self.assertGreaterEqual(cw8.latest, 0)
+                self.assertEqual(cw8.referenceIndex, 'MSCI World')
+                self.assertEqual(cw8.morningstarCategory, 'Actions International Gdes Cap. Mixte')
+            time.sleep(1)
+
+    def test_opcvm(self):
+        """OPCVM: Réserve Ecureuil C"""
+        for search in ['FR0010177378']:
+            with self.subTest(i=search):
+                ecureuil = Asset.from_boursorama(get_current_asset_data(search))
+                self.assertEqual(ecureuil.asset, 'opcvm')
+                self.assertEqual(ecureuil.isin, 'FR0010177378')
+                self.assertEqual(ecureuil.currency, 'EUR')
+                self.assertEqual(ecureuil.name, 'Réserve Ecureuil C')
+                self.assertEqual(ecureuil.symbol, 'MP-184677')
+                self.assertEqual(ecureuil.url,'https://www.boursorama.com/bourse/opcvm/cours/MP-184677/' )
+                self.assertGreaterEqual(ecureuil.latest, 0)
+                self.assertEqual(ecureuil.morningstarCategory, 'Swap EONIA PEA')
+                self.assertIsNone(ecureuil.referenceIndex)
+            time.sleep(1)
+
+        
+
+if __name__ == '__main__':
+    unittest.main()
 
 #+end_src
 
 #+RESULTS:
-: Hello World
 
 
 * Next steps
