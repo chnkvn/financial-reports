@@ -3,6 +3,7 @@ import re
 from itertools import chain
 from datetime import datetime
 import requests
+import streamlit as st
 from attrs import define, field
 from bs4 import BeautifulSoup
 from bs4.element import Tag
@@ -76,6 +77,7 @@ def extract_chart_data(soup:BeautifulSoup, id_:str ) -> dict:
     except IndexError as e:
         return None
 
+@st.cache_data
 def get_current_asset_data(asset:str) -> dict:
     """From an ISIN or a asset name, returns a dictionary containing:
     - its symbol on boursorama.com
