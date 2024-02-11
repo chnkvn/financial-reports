@@ -37,9 +37,17 @@ class Asset:
     referenceIndex: str 
     morningstarCategory: str
     assetsComposition: dict
-    sector: list
+    sectors: list
     lastDividende: dict = field(repr=replace_stringify_date_objects_iterable)
-
+    
+    def __hash__(self):
+        return hash(self.isin)
+    
+    def __eq__(self, other):
+        if not isinstance(other, Asset):
+            # only equality tests to other `structure` instances are supported
+            return NotImplemented
+        return self.isin == other.isin
 
     @classmethod
     def from_boursorama(cls, data:dict):
@@ -55,9 +63,9 @@ class Asset:
             data['tradeDate'],
             data['url'],
             data['referenceIndex'],
-            data['MorningstarCategory'],
-            data['AssetsComposition'],
-            data['Sectors'],
+            data['morningstarCategory'],
+            data['assetsComposition'],
+            data['sectors'],
             data['lastDividende'])
 
 def unicode_escape(s:str) -> str:
@@ -113,7 +121,7 @@ def get_current_asset_data(asset:str) -> dict:
         data['currency'] = relevant_tag.find_all('span', class_ = '\\"c-faceplate__price-currency\\"').pop().get_text().strip()
         map_attributes = {
             'indice de référence':'referenceIndex',
-            'catégorie morningstar': 'MorningstarCategory',
+            'catégorie morningstar': 'morningstarCategory',
             'amChartData': 'AssetsComposition'
         }
         # Init entries with null values
@@ -139,11 +147,11 @@ def get_current_asset_data(asset:str) -> dict:
         composition_request = requests.get('/'.join(url_split))
         if composition_request.status_code == 200:
             soup = BeautifulSoup(json.dumps(composition_request.content.decode("utf-8")), "lxml").body
-            data['AssetsComposition'] = extract_chart_data(soup,'\\"portfolio\\"' )
-            data['Sectors'] = extract_chart_data(soup,'\\"sector\\"' )
+            data['assetsComposition'] = extract_chart_data(soup,'\\"portfolio\\"' )
+            data['sectors'] = extract_chart_data(soup,'\\"sector\\"' )
         else:
-            data['AssetsComposition'] = [{"name": data['asset'], 'value': 100  }]
-            data['Sectors'] = [{'name': unicode_escape([link for link in soup.select('a[c-list-info__value]')][0].get_text())},
+            data['assetsComposition'] = [{"name": data['asset'], 'value': 100  }]
+            data['sectors'] = [{'name': unicode_escape([link for link in soup.select('a[c-list-info__value]')][0].get_text())},
                                {'value':100}]
         last_dividende = soup.find_all('p', string=re.compile('dernier dividende'))
         data['lastDividende'] = {}
@@ -163,5 +171,7 @@ def get_current_asset_data(asset:str) -> dict:
         raise ValueError('No asset found. Try with another name or the ISIN of your asset.')
 
 if __name__ == '__main__':
-    isin = "FR0010177378"
-    ic(Asset.from_boursorama(get_current_asset_data(isin)))
+    air_liquide = ['air liquide', 'FR0000120073']
+    lvmh = ['mc', 'lvmh', 'FR0000121014']
+    items = {Asset.from_boursorama(get_current_asset_data(asset)) for asset in air_liquide+lvmh}
+    ic(items, len(items))
