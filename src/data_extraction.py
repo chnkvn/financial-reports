@@ -10,8 +10,9 @@ from bs4.element import Tag
 from icecream import ic
 from typing import Iterable
 def date_to_str(date:datetime)-> str:
-    return date.strftime('%Y-%m-%d')
-
+    if isinstance(date, datetime):
+        return date.strftime('%Y-%m-%d')
+    return date
 def replace_stringify_date_objects_iterable(iterable: Iterable) -> Iterable:
     if isinstance(iterable,dict):
         return {key: (date_to_str(iterable[key]) if isinstance(iterable[key],datetime) else iterable[key]) for key in iterable}
@@ -151,8 +152,8 @@ def get_current_asset_data(asset:str) -> dict:
             data['sectors'] = extract_chart_data(soup,'\\"sector\\"' )
         else:
             data['assetsComposition'] = [{"name": data['asset'], 'value': 100  }]
-            data['sectors'] = [{'name': unicode_escape([link for link in soup.select('a[c-list-info__value]')][0].get_text())},
-                               {'value':100}]
+            data['sectors'] = [{'name': unicode_escape([link for link in soup.select('a[c-list-info__value]')][0].get_text()),
+                               'value':100}]
         last_dividende = soup.find_all('p', string=re.compile('dernier dividende'))
         data['lastDividende'] = {}
         if len(last_dividende) >1:
