@@ -38,7 +38,7 @@ class Asset:
     referenceIndex: str 
     morningstarCategory: str
     assetsComposition: dict
-    sectors: list
+    #sectors: list
     lastDividende: dict = field(repr=replace_stringify_date_objects_iterable)
     
     def __hash__(self):
@@ -66,7 +66,7 @@ class Asset:
             data['referenceIndex'],
             data['morningstarCategory'],
             data['assetsComposition'],
-            data['sectors'],
+            #data['sectors'],
             data['lastDividende'])
 
 def unicode_escape(s:str) -> str:
@@ -116,7 +116,7 @@ def get_current_asset_data(asset:str) -> dict:
         data['latest'] = relevant_tag.select('span[c-instrument--last]')[0].get_text()
         data['isin'] = relevant_tag.find_all('h2', class_='\\"c-faceplate__isin\\"')[0].get_text().split(' ')[0]
         
-        data['asset'] = url_split[url_split.index('cours')-1] if 'bourse' in r.url else 'stock'
+        data['asset'] = url_split[url_split.index('cours')-1] if 'bourse' in r.url else 'Actions'
         data['name'] = unicode_escape(name)
         data['url'] = r.url
         data['currency'] = relevant_tag.find_all('span', class_ = '\\"c-faceplate__price-currency\\"').pop().get_text().strip()
@@ -149,11 +149,11 @@ def get_current_asset_data(asset:str) -> dict:
         if composition_request.status_code == 200:
             soup = BeautifulSoup(json.dumps(composition_request.content.decode("utf-8")), "lxml").body
             data['assetsComposition'] = extract_chart_data(soup,'\\"portfolio\\"' )
-            data['sectors'] = extract_chart_data(soup,'\\"sector\\"' )
+            #data['sectors'] = extract_chart_data(soup,'\\"sector\\"' )
         else:
             data['assetsComposition'] = [{"name": data['asset'], 'value': 100  }]
-            data['sectors'] = [{'name': unicode_escape([link for link in soup.select('a[c-list-info__value]')][0].get_text()),
-                               'value':100}]
+            #data['sectors'] = [{'name': unicode_escape([link for link in soup.select('a[c-list-info__value]')][0].get_text()),
+             #                  'value':100}]
         last_dividende = soup.find_all('p', string=re.compile('dernier dividende'))
         data['lastDividende'] = {}
         if len(last_dividende) >1:
@@ -166,7 +166,10 @@ def get_current_asset_data(asset:str) -> dict:
                                 data['lastDividende']['amount'] = unicode_escape(sibling.get_text()).strip()
                                 amount = True
                                 continue
-                            data['lastDividende']['date'] = datetime.strptime(unicode_escape(sibling.get_text()).strip(), '%d.%m.%y')
+                            try:
+                                data['lastDividende']['date'] = datetime.strptime(unicode_escape(sibling.get_text()).strip(), '%d.%m.%y')
+                            except ValueError as e:
+                                data['lastDividende']['date'] = unicode_escape(sibling.get_text()).strip()
         return data
     except StopIteration as e:
         raise ValueError('No asset found. Try with another name or the ISIN of your asset.')

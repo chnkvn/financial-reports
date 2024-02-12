@@ -78,12 +78,7 @@ with asset_tab:
             st.subheader('Asset composition')
             asset_comp_chart = plot_piechart(asset_as_dict['assetsComposition'], 'name', 'value')
             st.plotly_chart(asset_comp_chart, use_container_width=True)
-        with sectors_comp:
-            if asset_as_dict['sectors']:
-                st.subheader('Sector composition')
-                sectors_chart = plot_piechart(asset_as_dict['sectors'], 'name', 'value')
-                st.plotly_chart(sectors_chart, use_container_width=True)
-        
+
 with portfolio_tab:
     if submitted and adding_to_portfolio:
         set_of_assets.add(asset_obj)
@@ -105,13 +100,9 @@ with portfolio_tab:
 
         if len(set_of_assets) > 0:
             total_assets_comp = chain.from_iterable([a.assetsComposition for a in set_of_assets])
-            total_sectors_comp = chain.from_iterable([a.sectors for a in set_of_assets if a.sectors])
+            #total_sectors_comp = chain.from_iterable([a.sectors for a in set_of_assets if a.sectors])
             ptf_asset_comp, ptf_sector_comp = st.columns(2)
             with ptf_asset_comp:
                 st.subheader('Portfolio asset repartition')
                 ptf_asset_comp_chart = ptf_piechart(total_assets_comp)
                 st.plotly_chart(ptf_asset_comp_chart, use_container_width=True)
-            with ptf_sector_comp:
-                st.subheader('Portfolio sector repartition')
-                ptf_sector_comp_chart = ptf_piechart(total_sectors_comp)
-                st.plotly_chart(ptf_sector_comp_chart, use_container_width=True)
