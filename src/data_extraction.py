@@ -72,7 +72,7 @@ class Asset:
 def unicode_escape(s:str) -> str:
     """Remove unicode sequences from a string s"""
     return s.encode('utf8').decode('unicode_escape')
-    
+
 def extract_chart_data(soup:BeautifulSoup, id_:str ) -> dict:
     """Extract amChartData key from source code"""
     try:
@@ -113,9 +113,9 @@ def get_current_asset_data(asset:str) -> dict:
         else:
             data['tradeDate'] = datetime.strptime(data['tradeDate'], '%Y-%m-%d')
         data['variation'] = relevant_tag.select('span[c-instrument--variation]')[0].get_text()
-        data['latest'] = relevant_tag.select('span[c-instrument--last]')[0].get_text()
+        data['latest'] = relevant_tag.select('span[c-instrument--last]')[0].get_text().replace(' ', '')
         data['isin'] = relevant_tag.find_all('h2', class_='\\"c-faceplate__isin\\"')[0].get_text().split(' ')[0]
-        
+
         data['asset'] = url_split[url_split.index('cours')-1] if 'bourse' in r.url else 'Actions'
         data['name'] = unicode_escape(name)
         data['url'] = r.url
@@ -142,7 +142,7 @@ def get_current_asset_data(asset:str) -> dict:
                         data[attr] = [data[attr]] + [v]
                     else:
                         data[attr].append(v)
-                            
+
         # Composition
         url_split.insert(-2, 'composition')
         composition_request = requests.get('/'.join(url_split))
@@ -167,12 +167,18 @@ def get_current_asset_data(asset:str) -> dict:
                                 amount = True
                                 continue
                             try:
-                                data['lastDividende']['date'] = datetime.strptime(unicode_escape(sibling.get_text()).strip(), '%d.%m.%y')
+                                data['lastDividende']['date'] = datetime.strptime(unicode_escape(sibling.get_text()), '%d.%m.%y').strip()
                             except ValueError as e:
                                 data['lastDividende']['date'] = unicode_escape(sibling.get_text()).strip()
+        data = {k:(v.strip() if isinstance(v, str) else v) for k,v in data.items()}
         return data
     except StopIteration as e:
         raise ValueError('No asset found. Try with another name or the ISIN of your asset.')
+
+
+def get_historical_data(bourso_ticker:str):
+    req = requests.get(f'https://www.boursorama.com/bourse/action/graph/ws/GetTicksEOD?symbol={bourso_ticker}&length=7300&period=0')
+    return req.json()['d']['QuoteTab']
 
 if __name__ == '__main__':
     air_liquide = ['air liquide', 'FR0000120073']

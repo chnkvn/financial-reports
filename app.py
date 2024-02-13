@@ -3,18 +3,20 @@ import sys
 from itertools import chain
 from pathlib import Path
 from typing import Iterable
-
+from datetime import datetime,timedelta
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import srsly
 import streamlit as st
 from attrs import asdict
 from icecream import ic
+import numpy as np
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from financial_reports.src.data_extraction import (Asset, date_to_str,
-                                                   get_current_asset_data)
+                                                   get_current_asset_data, get_historical_data)
 
 st.title('Asset visualizer')
 ptf_name = st.text_input('Name of the portfolio (This name will be used the save and load your portfolio.)', 'MyPortfolio', placeholder='MyPortfolio')
@@ -39,18 +41,26 @@ def plot_piechart(data:Iterable, cat_name:str='name', value:str='value'):
 
 def ptf_piechart(iter_of_dicts:Iterable):
     d = {}
-    for dict_ in iter_of_dicts:
-        ic(dict_)
+    for i,dict_ in enumerate(iter_of_dicts):
         d[dict_['name']] = d.get(dict_['name'], 0) + float(dict_['value'])
     [*categories], [*values] = list(zip(*d.items()))
-    
-    fig = go.Figure(data=[go.Pie(labels=categories, values=values)])
+    values = np.array(values)
+    fig = go.Figure(data=[go.Pie(labels=categories, values=values/(i+1))])
+    return fig
+
+def convert_to_date(nb:int):
+    init_date =datetime.strptime('01/01/1970', "%m/%d/%Y")
+    return init_date + timedelta(days=nb)
+
+def plot_historical_chart(df:pd.DataFrame, name:str, isin:str):
+    fig = px.line(df, x="date", y="c", title=f'{name} - {isin}')
     return fig
 
 with st.form("sidebar"):
     with st.sidebar:
         asset = st.text_input(
-            "Enter an ISIN. You may also enter a name or a ticker, but you might get some errors.",
+            "Enter an ISIN. You may also enter a name or a ticker, but you might get some errors.\nPrefilled with MC, the ticker of LVMH stock.",
+            value = 'MC',
             placeholder = "ISIN, Ticker.",
         )
         adding_to_portfolio = st.checkbox('Add to your portfolio', True)
@@ -73,36 +83,58 @@ with asset_tab:
             asset_as_dict['lastDividende']['date'] = date_to_str(asset_as_dict['lastDividende']['date'])
         st.dataframe(asset_as_dict, column_config={0:'property',1:'value'} , use_container_width=True)
 
-        asset_comp, sectors_comp  = st.columns(2)
+        asset_comp, historic_chart  = st.columns(2)
         with asset_comp:
             st.subheader('Asset composition')
             asset_comp_chart = plot_piechart(asset_as_dict['assetsComposition'], 'name', 'value')
             st.plotly_chart(asset_comp_chart, use_container_width=True)
 
+        with historic_chart:
+            st.subheader(f"Historical prices {asset_as_dict['currency']}")
+            history = get_historical_data(asset_as_dict['symbol'])
+            df = pd.DataFrame(history)
+            df['date'] = df.d.apply(convert_to_date)
+            st.plotly_chart(plot_historical_chart(df, asset_as_dict['name'], asset_as_dict['isin']))
 with portfolio_tab:
     if submitted and adding_to_portfolio:
         set_of_assets.add(asset_obj)
+        
         srsly.write_jsonl(jsonl_ptf_path, [asdict(a) for a in set_of_assets])
-    ptf_df = pd.DataFrame([(a.name, a.isin, a.asset) for a in set_of_assets], columns = ['asset name', 'isin', 'asset_type'])
+        
+        #ptf_df = pd.DataFrame([(a.name, a.isin, a.asset) for a in set_of_assets], columns = ['asset name', 'isin', 'asset_type'])
+    ptf_df = pd.DataFrame([{k:v
+                           for k,v in asdict(a).items()
+                                       if k not in ['tradeDate', 'assetsComposition', 'url',
+                                                    'referenceIndex', 'morningstarCategory'
+                                                                          ]} for a in set_of_assets])
+
+    ptf_df.insert(0,'in_ptf', True)
     with st.form('update_assets'):
+
         ptf_df = st.data_editor(
                 ptf_df,
-            num_rows="dynamic",
-        disabled=['asset name', 'isin', 'asset_type'],
-        hide_index=True,
-    )
-        st.write("You can remove assets from the portfolio by selecting rows then click on the basket.")
+        column_config={
+        "in_ptf": st.column_config.CheckboxColumn(
+            "In portfolio?",
+            help="Select your current assets.",
+            default=True,
+         )},
+
+        disabled= [column for column in ptf_df.columns if column != 'in_ptf'],
+        hide_index=True)
+    
         update_assets = st.form_submit_button("Update assets")
-
-        isins = ptf_df['isin'].tolist()
         if update_assets:
-            srsly.write_jsonl(jsonl_ptf_path, [asdict(a) for a in set_of_assets if a.isin in isins])
-
-        if len(set_of_assets) > 0:
-            total_assets_comp = chain.from_iterable([a.assetsComposition for a in set_of_assets])
-            #total_sectors_comp = chain.from_iterable([a.sectors for a in set_of_assets if a.sectors])
-            ptf_asset_comp, ptf_sector_comp = st.columns(2)
-            with ptf_asset_comp:
-                st.subheader('Portfolio asset repartition')
-                ptf_asset_comp_chart = ptf_piechart(total_assets_comp)
-                st.plotly_chart(ptf_asset_comp_chart, use_container_width=True)
+            ptf_df = ptf_df[ptf_df['in_ptf']]
+            srsly.write_jsonl(jsonl_ptf_path,
+                          [asdict(a) for a in set_of_assets
+                           if a.isin in ptf_df[ptf_df['in_ptf']]['isin'].tolist()])
+            st.rerun()
+    if len(set_of_assets) > 0:
+        total_assets_comp = chain.from_iterable([a.assetsComposition for a in set_of_assets])
+        #total_sectors_comp = chain.from_iterable([a.sectors for a in set_of_assets if a.sectors])
+        ptf_asset_comp, ptf_sector_comp = st.columns(2)
+        with ptf_asset_comp:
+            st.subheader('Portfolio asset repartition')
+            ptf_asset_comp_chart = ptf_piechart(total_assets_comp)
+            st.plotly_chart(ptf_asset_comp_chart, use_container_width=True)
