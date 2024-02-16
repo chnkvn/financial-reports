@@ -1,17 +1,22 @@
 import json
 import re
-from itertools import chain
 from datetime import datetime
+from itertools import chain
+from typing import Iterable
+
 import requests
 import streamlit as st
 from attrs import define, field
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 from icecream import ic
-from typing import Iterable
+
+DATE_FORMAT = '%Y-%m-%d'
+
+
 def date_to_str(date:datetime)-> str:
     if isinstance(date, datetime):
-        return date.strftime('%Y-%m-%d')
+        return date.strftime(DATE_FORMAT)
     return date
 def replace_stringify_date_objects_iterable(iterable: Iterable) -> Iterable:
     if isinstance(iterable,dict):
@@ -79,10 +84,12 @@ def extract_chart_data(soup:BeautifulSoup, id_:str ) -> dict:
         # Find the id in source code
         portfolio = soup.find_all('div', id=id_)
         # Extract the tags, remove NavigableString objects
-        tags = list(chain.from_iterable(unicode_escape(x.get_text()).strip().split('\n') for x in portfolio[0].parent.contents if isinstance(x, Tag)))
+        tags = list(chain.from_iterable(unicode_escape(x.get_text()).strip().split('\n')
+                                        for x in portfolio[0].parent.contents if isinstance(x, Tag)))
         am_chart_data = [tag for tag in tags if '"amChartData"' in tag].pop()
         # Extract content
-        return json.loads('{'+re.search(r'"amChartData":\[\{"name":.+\]\}',am_chart_data).group())['amChartData']
+        return json.loads('{'+re.search(r'"amChartData":\[\{"name":.+\]\}',
+                                        am_chart_data).group())['amChartData']
     except IndexError as e:
         return None
 
@@ -109,7 +116,7 @@ def get_current_asset_data(asset:str) -> dict:
         if len(data) == 0:
             date_ = relevant_tag.find_all('div', class_='\\"c-faceplate__real-time\\"')[0]
             data['symbol'] = symbol
-            data['tradeDate'] = datetime.strptime(re.search(r'[0-3][0-9]/[01][0-9]/[0-9]{4}', date_.get_text()).group(),'%d/%m/%Y')
+            data['tradeDate'] = datetime.strptime(re.search(r'[0-3][0-9]/[01][0-9]/[0-9]{4}', date_.get_text()).group(),'%Y-%m-%d')
         else:
             data['tradeDate'] = datetime.strptime(data['tradeDate'], '%Y-%m-%d')
         data['variation'] = relevant_tag.select('span[c-instrument--variation]')[0].get_text()
@@ -167,9 +174,11 @@ def get_current_asset_data(asset:str) -> dict:
                                 amount = True
                                 continue
                             try:
-                                data['lastDividende']['date'] = datetime.strptime(unicode_escape(sibling.get_text()), '%d.%m.%y').strip()
+                                data['lastDividende']['date'] = datetime.strptime(unicode_escape(sibling.get_text()).strip(), '%d.%m.%y')
+                                ic(data['lastDividende']['date'])
                             except ValueError as e:
                                 data['lastDividende']['date'] = unicode_escape(sibling.get_text()).strip()
+                            
         data = {k:(v.strip() if isinstance(v, str) else v) for k,v in data.items()}
         return data
     except StopIteration as e:
