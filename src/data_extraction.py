@@ -3,7 +3,7 @@ import re
 from datetime import datetime
 from itertools import chain
 from typing import Iterable
-
+import asyncio
 import requests
 import streamlit as st
 from attrs import define, field
@@ -102,8 +102,11 @@ def get_current_asset_data(asset:str) -> dict:
     - its financial exchange place code
     - its trade Date
     - store the url in a new key"""
-    asset = asset.replace(' ', '%20')
-    r = requests.get(f'https://www.boursorama.com/recherche/{asset}/')
+    if asset.startswith('https://'):
+        r = requests.get(asset)
+    else:
+        asset = asset.replace(' ', '%20')
+        r = requests.get(f'https://www.boursorama.com/recherche/{asset}/')
     url_split = r.url.split('/')
     soup = BeautifulSoup(json.dumps(r.content.decode("utf-8")), "lxml").body
     data = {}
