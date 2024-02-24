@@ -1,9 +1,9 @@
 import json
 import re
-from datetime import datetime
+from datetime import datetime, date
 from itertools import chain
 from typing import Iterable
-import asyncio
+
 import requests
 import streamlit as st
 from attrs import define, field
@@ -16,11 +16,14 @@ DATE_FORMAT = '%Y-%m-%d'
 
 def date_to_str(date:datetime)-> str:
     if isinstance(date, datetime):
-        return date.strftime(DATE_FORMAT)
+        #return date.strftime(DATE_FORMAT)
+        return str(date.date())
     return date
 def replace_stringify_date_objects_iterable(iterable: Iterable) -> Iterable:
     if isinstance(iterable,dict):
-        return {key: (date_to_str(iterable[key]) if isinstance(iterable[key],datetime) else iterable[key]) for key in iterable}
+        return {key: (date_to_str(iterable[key])
+                      if isinstance(iterable[key],(datetime,date))
+                      else iterable[key]) for key in iterable}
     else:
         iterable = [date_to_str(x) if isinstance(x, datetime) else x for x in iter()]
         if isinstance(iterable, tuple):
@@ -119,8 +122,10 @@ def get_current_asset_data(asset:str) -> dict:
         if len(data) == 0:
             date_ = relevant_tag.find_all('div', class_='\\"c-faceplate__real-time\\"')[0]
             data['symbol'] = symbol
-            data['tradeDate'] = datetime.strptime(re.search(r'[0-3][0-9]/[01][0-9]/[0-9]{4}', date_.get_text()).group(),'%Y-%m-%d')
+            
+            data['tradeDate'] = datetime.strptime(re.search(r'[0-3][0-9]/[01][0-9]/[0-9]{4}', date_.get_text()).group(),'%d/%m/%Y')
         else:
+            
             data['tradeDate'] = datetime.strptime(data['tradeDate'], '%Y-%m-%d')
         data['variation'] = relevant_tag.select('span[c-instrument--variation]')[0].get_text()
         data['latest'] = relevant_tag.select('span[c-instrument--last]')[0].get_text().replace(' ', '')
@@ -178,11 +183,12 @@ def get_current_asset_data(asset:str) -> dict:
                                 continue
                             try:
                                 data['lastDividende']['date'] = datetime.strptime(unicode_escape(sibling.get_text()).strip(), '%d.%m.%y')
-                                ic(data['lastDividende']['date'])
+
                             except ValueError as e:
                                 data['lastDividende']['date'] = unicode_escape(sibling.get_text()).strip()
                             
         data = {k:(v.strip() if isinstance(v, str) else v) for k,v in data.items()}
+        ic(data)
         return data
     except StopIteration as e:
         raise ValueError('No asset found. Try with another name or the ISIN of your asset.')
