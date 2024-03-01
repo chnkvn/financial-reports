@@ -3,7 +3,8 @@ import re
 from datetime import datetime, date
 from itertools import chain
 from typing import Iterable
-
+import pandas as pd
+from datetime import date, datetime, timedelta
 import requests
 import streamlit as st
 from attrs import define, field
@@ -12,7 +13,7 @@ from bs4.element import Tag
 from icecream import ic
 
 DATE_FORMAT = '%Y-%m-%d'
-
+TODAY = date.today()
 
 def date_to_str(date:datetime)-> str:
     if isinstance(date, datetime):
@@ -191,12 +192,16 @@ def get_current_asset_data(asset:str) -> dict:
         ic(data)
         return data
     except StopIteration as e:
-        raise ValueError('No asset found. Try with another name or the ISIN of your asset.')
+        raise ValueError(f'{asset}: No asset found. Try with another name or the ISIN of your asset.')
 
 
-def get_historical_data(bourso_ticker:str):
+
+def get_historical_data(bourso_ticker:str)-> pd.DataFrame: 
     req = requests.get(f'https://www.boursorama.com/bourse/action/graph/ws/GetTicksEOD?symbol={bourso_ticker}&length=7300&period=0')
-    return req.json()['d']['QuoteTab']
+    df = pd.DataFrame(req.json()['d']['QuoteTab'])
+    # convert to datetime object
+    df['date'] = pd.to_datetime(df['d'], unit='D')
+    return df
 
 if __name__ == '__main__':
     air_liquide = ['air liquide', 'FR0000120073']
