@@ -1,10 +1,11 @@
 import json
 import re
-from datetime import datetime, date
+from datetime import date, datetime, timedelta
 from itertools import chain
 from typing import Iterable
+
+import duckdb
 import pandas as pd
-from datetime import date, datetime, timedelta
 import requests
 import streamlit as st
 from attrs import define, field
@@ -32,7 +33,19 @@ def replace_stringify_date_objects_iterable(iterable: Iterable) -> Iterable:
         elif isinstance(iterable, set):
             return set(iterable)
         return iterable
-                
+
+def compute_perf(df:pd.DataFrame):
+    """Compute the performance of an asset given a dataframe"""
+    min_value = duckdb.sql("""
+    SELECT date, c from df
+    where date = (select min(date) from df )
+     """).fetchall()[0]
+    max_value = duckdb.sql("""
+    SELECT date, c from df
+    where date = (select max(date) from df)
+     """).fetchall()[0]
+    return f'{100*((max_value[1]/min_value[1])-1):.2f}%'
+
 @define
 class Asset:
     asset: str
@@ -49,6 +62,7 @@ class Asset:
     assetsComposition: dict
     #sectors: list
     lastDividende: dict = field(repr=replace_stringify_date_objects_iterable)
+    _quotations: list = None
     
     def __hash__(self):
         return hash(self.isin)
@@ -77,6 +91,41 @@ class Asset:
             data['assetsComposition'],
             #data['sectors'],
             data['lastDividende'])
+
+    @property
+    def quotations(self):
+        """Return quotations"""
+        if self._quotations is None:
+            historical_data_df = get_historical_data(self.symbol)
+            # close prices : c
+            map_period_to_filter = {
+                'inception': '',
+                f'{TODAY.year-1}':f"where date >='{TODAY.year-1}-01-01' and date <'{TODAY.year}-01-01'",
+                'ytd':f"where date >='{TODAY.year}-01-01' and date <'{TODAY.year+1}-01-01'",
+                '1week': f'''WHERE date >= '{str(TODAY-timedelta(weeks=1))}' 
+                AND date <= '{str(TODAY)}' ''',
+                '1month': f'''WHERE date >= '{str(TODAY-timedelta(30))}'
+                AND date <= '{str(TODAY)}' ''',
+                '3months': f'''WHERE date >= '{str(TODAY-timedelta(91))}'
+                AND date <= '{str(TODAY)}' ''',
+                '6months': f'''WHERE date >= '{str(TODAY-timedelta(184))}'
+                AND date <= '{str(TODAY)}' ''',
+                '1year': f'''WHERE date >= '{str(date(year=TODAY.year-1,month=TODAY.month, day=TODAY.day))}'
+                AND date <= '{str(TODAY)}' ''',
+                '3years': f'''WHERE date >= '{str(date(year=TODAY.year-3,month=TODAY.month, day=TODAY.day))}'
+                AND date <= '{str(TODAY)}' ''',
+                '5years': f'''WHERE date >= '{str(date(year=TODAY.year-5,month=TODAY.month, day=TODAY.day))}'
+                AND date <= '{str(TODAY)}' ''',
+            }
+            self._quotations = {period: duckdb.sql(
+                f'''
+                select date, c
+                from historical_data_df
+                {map_period_to_filter.get(period, '')}
+                ORDER BY date''').df()
+                                for period in map_period_to_filter}
+            
+        return self._quotations
 
 def unicode_escape(s:str) -> str:
     """Remove unicode sequences from a string s"""
@@ -189,7 +238,6 @@ def get_current_asset_data(asset:str) -> dict:
                                 data['lastDividende']['date'] = unicode_escape(sibling.get_text()).strip()
                             
         data = {k:(v.strip() if isinstance(v, str) else v) for k,v in data.items()}
-        ic(data)
         return data
     except StopIteration as e:
         raise ValueError(f'{asset}: No asset found. Try with another name or the ISIN of your asset.')
@@ -200,7 +248,7 @@ def get_historical_data(bourso_ticker:str)-> pd.DataFrame:
     req = requests.get(f'https://www.boursorama.com/bourse/action/graph/ws/GetTicksEOD?symbol={bourso_ticker}&length=7300&period=0')
     df = pd.DataFrame(req.json()['d']['QuoteTab'])
     # convert to datetime object
-    df['date'] = pd.to_datetime(df['d'], unit='D')
+    df['date'] = pd.to_datetime(df['d'], unit='D').dt.date
     return df
 
 if __name__ == '__main__':

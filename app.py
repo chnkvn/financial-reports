@@ -14,8 +14,9 @@ import plotly.graph_objects as go
 import srsly
 import streamlit as st
 from attrs import field, asdict
+from attrs.filters import exclude
 from icecream import ic
-
+from attrs.filters import exclude
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from financial_reports.src.data_extraction import (DATE_FORMAT, Asset,
@@ -58,7 +59,7 @@ def plot_piechart(data:Iterable, cat_name:str='name', value:str='value'):
 def ptf_piechart(iter_of_dicts:Iterable):
     d = {}
     for i,dict_ in enumerate(iter_of_dicts):
-        d[dict_['name']] = d.get(dict_['name'], 0) + float(dict_['value'])
+        d[dict_['name']] =  d.get(dict_['name'], 0) + dict_['value']
     [*categories], [*values] = list(zip(*d.items()))
     values = np.array(values)
     fig = go.Figure(data=[go.Pie(labels=categories, values=values/(i+1))])
@@ -84,7 +85,7 @@ with st.form("sidebar"):
             st.write(f"Asset: {asset}")
             asset_obj = Asset.from_boursorama(get_current_asset_data(asset))
             st.header(f"Name: {asset_obj.name}")
-            asset_as_dict = asdict(asset_obj)
+            asset_as_dict = asdict(asset_obj, filter= exclude('_quotations'))
             asset_as_dict["tradeDate"] = date_to_str(asset_as_dict["tradeDate"])
             if len(asset_as_dict["lastDividende"]) > 0:
                 asset_as_dict["lastDividende"]["date"] = date_to_str(
@@ -106,10 +107,10 @@ with st.form("sidebar"):
 
             with historic_chart:
                 st.subheader(f"Historical prices {asset_as_dict['currency']}")
+                ic(asset_obj.quotations.keys())
                 st.write('You can view the chart in full screen and zoom in the period by selecting the wanted period.')
-                history_df = get_historical_data(asset_as_dict["symbol"])
                 st.plotly_chart(
-                    plot_historical_chart(history_df, asset_as_dict["name"], asset_as_dict["isin"])
+                    plot_historical_chart(asset_obj.quotations['inception'], asset_as_dict["name"], asset_as_dict["isin"])
                     )
 
 operations_col, details_col= st.tabs(["Portfolio Operations", "Portfolio details"])
@@ -138,18 +139,20 @@ with operations_col:
                                           index=None,
                                           placeholder = "Select the asset.",
                                           key='asset_operation_add')
-            argA, argB = None, None
+            argA, argB, taxes_fees = None, None, 0
             if st.session_state.get('operation_type_add', None) not in ['Split', 'Interest']:
                 if operation_type in ['Buy', 'Sell']:
+                    taxes_fees= st.number_input("Taxes/Fees", min_value=0.00)
                     if operation_type == 'Buy':
                         argB = st.number_input("Quantity",value= 1.0, min_value=0.001)
-                        argA = st.number_input("Price", min_value=0.01)
+                        argA = st.number_input("Price", min_value=0.00)
                     else: #sell
                         try:
                             copy_operations_df = portfolio.operations_df.copy()
                             asset_operations = duckdb.sql(f"""select operation, sum(quantity) as sum_qty
                             from copy_operations_df
-                            where name='{st.session_state["asset_operation_add"][0]}' and isin='{st.session_state["asset_operation_add"][1]}'
+                            where name='{st.session_state["asset_operation_add"][0]}'
+                            and isin='{st.session_state["asset_operation_add"][1]}'
                             group by operation""").fetchall()
                             asset_operations = {op: value for (op, value) in asset_operations}
                             
@@ -157,7 +160,7 @@ with operations_col:
                                                    value=1.0,
                                                    min_value=0.0,
                                                    max_value=asset_operations.get('Buy', 0 ) - asset_operations.get('Sell', 0))
-                            argA = st.number_input("Price", min_value=0.01)
+                            argA = st.number_input("Price", min_value=0.00)
                             
                         except Exception as e:
                             ic(e)
@@ -182,16 +185,22 @@ with operations_col:
                                              " two integer numbers separated by a colon(:).")
                     argA = int(after)/int(before)
             # Check all arguments are filled to enable add operation button
-            if all([argA, operation_on_asset is not None,operation_type is not None]):
+            if all([operation_on_asset is not None,operation_type is not None]):
                 st.session_state['invalid_operation'] = 0
+                
             # Append operation to csv
             if st.button('Add operation', disabled=st.session_state.get('invalid_operation', 1)):
-                portfolio.operations_df.loc[len(portfolio.operations_df.operation)] = {'name':operation_on_asset[0],
-                                                             'isin':operation_on_asset[1],
-                                                             'date':operation_date.isoformat(),
-                                                             'operation':operation_type,
-                                                             'quantity':argB,
-                                                             'value':argA}
+                ic(st.session_state['invalid_operation'])
+                portfolio.operations_df.loc[
+                    len(portfolio.operations_df.operation)
+                ] = {'name':operation_on_asset[0],
+                     'isin':operation_on_asset[1],
+                     'date':operation_date.isoformat(),
+                     'operation':operation_type,
+                     'quantity':argB,
+                     'value':argA,
+                     'taxes/fees': taxes_fees
+                     }
                 portfolio.operations_df.to_csv(portfolio.csv_ptf_path,
                                   index=False,
                                   columns=[col for col in portfolio.operations_df.columns
@@ -238,7 +247,7 @@ with details_col:
     if submitted and adding_to_portfolio:
         portfolio.dict_of_assets[asset_obj.isin]= asset_obj
 
-        srsly.write_jsonl(portfolio.jsonl_ptf_path, [asdict(a) for a in portfolio.dict_of_assets.values()])
+        srsly.write_jsonl(portfolio.jsonl_ptf_path, [asdict(a, filter=exclude('_quotations')) for a in portfolio.dict_of_assets.values()])
 
     with st.expander('Followed assets'):
         ptf_df = pd.DataFrame(
@@ -287,13 +296,23 @@ with details_col:
                 st.rerun()
 
     st.dataframe(portfolio.assets_summary, hide_index=True)
-    if len(portfolio.dict_of_assets) > 0:
-        total_assets_comp = chain.from_iterable(
-            [a.assetsComposition for a in portfolio.dict_of_assets.values()]
-        )
-        # total_sectors_comp = chain.from_iterable([a.sectors for a in dict_of_assets if a.sectors])
-        ptf_asset_comp, ptf_sector_comp = st.columns(2)
+    if len(portfolio.assets_summary['isin']) > 0:
+        total_assets_comp = [{'name': d['name'], 'value': d['value']*k}
+             for i, (a, k) in enumerate(zip(portfolio.assets_summary['isin'].tolist(),
+                                  portfolio.assets_summary['proportion'].tolist()))
+            for d in portfolio.dict_of_assets[a].assetsComposition
+            ]
+        
+        
+        ptf_asset_comp, ptf_asset_proportion = st.columns(2)
         with ptf_asset_comp:
             st.subheader("Portfolio asset repartition")
             ptf_asset_comp_chart = ptf_piechart(total_assets_comp)
             st.plotly_chart(ptf_asset_comp_chart, use_container_width=True)
+
+        with ptf_asset_proportion:
+            st.subheader('Proportion of each asset in your portfolio')
+            proportion_fig = px.pie(portfolio.assets_summary,
+                                    values='valuation', names='name',
+                                    title='Proportion of each asset in your portfolio')
+            st.plotly_chart(proportion_fig, use_container_width=True)
