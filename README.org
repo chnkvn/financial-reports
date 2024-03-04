@@ -469,10 +469,15 @@ class Portfolio:
                            'isin': isin,
                            'asset':self.dict_of_assets[isin].asset,
                            'quantity': quantity,
-                           'variation': self.dict_of_assets[isin].variation,
+                           'daily variation': self.dict_of_assets[isin].variation,
                            'currency':self.dict_of_assets[isin].currency,
                            'latest': self.dict_of_assets[isin].latest,
                            'total dividends': total_dividends,
+                           
+                           'TRI ytd':self.compute_xirr_pv(isin_df,isin, period='ytd'),
+                           f'TRI {TODAY.year-1}':self.compute_xirr_pv(isin_df,isin,period=f'{TODAY.year-1}'),
+                           'TRI since 1st buy': self.compute_xirr_pv(isin_df, isin),
+                           'Total invested amount': self.compute_xirr_pv(isin_df, isin, invested=True), 
                            'Perf ytd': compute_perf(self.dict_of_assets[isin].quotations['ytd']),
                            f'Perf {TODAY.year-1}': compute_perf(self.dict_of_assets[isin].quotations[f'{TODAY.year-1}']),
                            'Perf 1m': compute_perf(self.dict_of_assets[isin].quotations['1month']),
@@ -480,20 +485,25 @@ class Portfolio:
                            'Perf 1y': compute_perf(self.dict_of_assets[isin].quotations['1year']),
                            'Perf 3y': compute_perf(self.dict_of_assets[isin].quotations['3years']),
                            'Perf 5y': compute_perf(self.dict_of_assets[isin].quotations['5years']),
-                           'TRI ytd':self.compute_xirr(isin_df,isin, period='ytd'),
-                           f'TRI {TODAY.year-1}':self.compute_xirr(isin_df,isin,period=f'{TODAY.year-1}'),
-                           'TRI since 1st buy': self.compute_xirr(isin_df, isin),
                            'operations':isin_df
                            }
                 summary['valuation'] = summary['quantity']*summary['latest']
+                summary['Capital gain'] = summary['valuation'] - summary['Total invested amount']
+                summary['Capital gain (%)'] = 100*(summary['valuation'] - summary['Total invested amount'])/summary['Total invested amount']
                 
                 assets.append(summary)
                 
             self._assets_summary = pd.DataFrame(assets)
             self._assets_summary['proportion'] = round(
-            self._assets_summary['valuation']/self._assets_summary['valuation'].sum(),
+            100*self._assets_summary['valuation']/self._assets_summary['valuation'].sum(),
                 2)
-            
+            # Keep only assets we currently own
+            self._assets_summary = self._assets_summary.loc[self._assets_summary['valuation']>0]
+            # Reorder columns
+            cols = list(self._assets_summary.columns)
+            ic(cols)
+            cols = cols[23:] + cols[0:12] + cols[20:23] + cols[12:20]
+            self._assets_summary = self._assets_summary[cols]
         return self._assets_summary
     
     def get_asset_quantity(self, df:pd.DataFrame, limit_day:date=TODAY):
@@ -515,50 +525,56 @@ class Portfolio:
             tracking.append(quantity)
         return quantity, total_dividends, tracking
 
-    def compute_xirr(self, df:pd.DataFrame, isin:str, period='inception'):
-        # add Initial value, last value
-        quotations_df = self.dict_of_assets[isin].quotations[period]
-        cashflows_df = duckdb.sql(f"""
-        with first_last_quotations as (
-        select * from (select
-        date,
-        quotations_df.c as value,
-        row_number() over(order by date) as rn,
-        count(*) over() as total_count
-        from quotations_df
-        order by date)
-        full join df
-        using (date, value)
-        where rn = 1 or rn = total_count or rn is null
-        order by date),
-        
-        lag_df as (select *,
-        COALESCE(quantity, lag(quantity) over(order by date)) as quantity_,
-        COALESCE(cumulative_quantity,
-        lag(cumulative_quantity) over(order by date)) as cumulative_quantity_
-        from first_last_quotations)
+    def compute_xirr_pv(self, df:pd.DataFrame, isin:str,
+                        period='inception', invested=False):
+        try:
+            # add Initial value, last value
+            quotations_df = self.dict_of_assets[isin].quotations[period]
+            cashflows_df = duckdb.sql(f"""
+            with first_last_quotations as (
+            select * from (select
+            date,
+            quotations_df.c as value,
+            row_number() over(order by date) as rn,
+            count(*) over() as total_count
+            from quotations_df
+            order by date)
+            full join df
+            using (date, value)
+            where rn = 1 or rn = total_count or rn is null
+            order by date),
 
-        select date, operation, quantity_ as quantity, value,
-        (CASE
-        WHEN operation = 'Buy' THEN -quantity_*value
-        WHEN operation = 'Split' THEN 0
-        WHEN operation IS NULL and rn=1 THEN -COALESCE(cumulative_quantity_, 0)*value
-        WHEN operation IS NULL and rn!=1 THEN COALESCE(cumulative_quantity_,
-        lag(cumulative_quantity_) over())*value
-        ELSE quantity_*value
-        END) as cashflow
-        from lag_df
-        {map_period_to_filter.get(period, '')}
-  
+            lag_df as (select *,
+            COALESCE(quantity, lag(quantity) over(order by date)) as quantity_,
+            COALESCE(cumulative_quantity,
+            lag(cumulative_quantity) over(order by date)) as cumulative_quantity_
+            from first_last_quotations)
 
-        """).df()
-        if period == 'ytd':
-            cashflows_df.at[len(cashflows_df.index) - 1, 'date'] = date(year=TODAY.year, month=12, day=31)
-        cashflows_df.to_csv(f'{isin}_{period}.csv')
-        
-        irr = xirr(cashflows_df['date'], cashflows_df['cashflow'])*100
-
-        return f'{irr:.2f}%'
+            select date, operation, quantity_ as quantity, value,
+            (CASE
+            WHEN operation = 'Buy' THEN -quantity_*value
+            WHEN operation = 'Split' THEN 0
+            WHEN operation IS NULL and rn=1 THEN -COALESCE(cumulative_quantity_,
+            0)*value
+            WHEN operation IS NULL and rn!=1 THEN COALESCE(cumulative_quantity_,
+            lag(cumulative_quantity_) over())*value
+            ELSE quantity_*value
+            END) as cashflow
+            from lag_df
+            {map_period_to_filter.get(period, '')}
+            """).df()
+            if invested:
+                invested_amount = round(-(cashflows_df['cashflow'].iloc[:-1].sum()),2)
+                return invested_amount
+            else:
+                if period == 'ytd':
+                    cashflows_df.at[len(cashflows_df.index) - 1, 'date'] = date(year=TODAY.year, month=12, day=31)
+                ic(cashflows_df)
+                irr = xirr(cashflows_df['date'], cashflows_df['cashflow'])*100
+                return f'{irr:.2f}%'
+        except Exception as e:
+            ic(e)
+            return 'Not owned'
 
     @property
     def asset_values(self):
@@ -573,6 +589,7 @@ class Portfolio:
                 """).df())
                 
             all_quotations_df = pd.concat(all_quotations_df)
+            ic(all_quotations_df)
             # can't join on operation_df, because we need cumulative quantities.
             cum_quantities_df = pd.concat([df for df in self.assets_summary['operations']])
             all_quotations_df['date']=pd.to_datetime(all_quotations_df['date']).dt.date
@@ -581,7 +598,7 @@ class Portfolio:
             self._asset_values = duckdb.sql(
                 '''
                 with grouped as (
-                select date, name,
+                select date, name, c,
                 cumulative_quantity,
                 count(cumulative_quantity) over(partition by name order by date) as grouper
                 from all_quotations_df aqdf
@@ -593,12 +610,11 @@ class Portfolio:
                 select * from (select date, name,
                 max(cumulative_quantity)
                 over(partition by name, grouper
-                order by date) as value
+                order by date)*c as value
                 from grouped
                 order by date)
                 '''
             ).df()
-            ic(self._asset_values.tail(20))
         return self._asset_values
         
     
@@ -934,7 +950,8 @@ with details_col:
 
     if len(portfolio.assets_summary['isin']) > 0:
         st.dataframe(portfolio.assets_summary, hide_index=True,
-                 column_config={'operations':None})
+                     column_config={'operations':None},
+                     )
         filled_area_plot = px.area(portfolio.asset_values, x='date', y='value',
                                color='name')
         st.subheader('Historical records')

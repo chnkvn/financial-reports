@@ -301,7 +301,8 @@ with details_col:
 
     if len(portfolio.assets_summary['isin']) > 0:
         st.dataframe(portfolio.assets_summary, hide_index=True,
-                 column_config={'operations':None})
+                     column_config={'operations':None},
+                     )
         filled_area_plot = px.area(portfolio.asset_values, x='date', y='value',
                                color='name')
         st.subheader('Historical records')
