@@ -13,17 +13,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 import srsly
 import streamlit as st
-from attrs import field, asdict
+from attrs import asdict, field
 from attrs.filters import exclude
 from icecream import ic
-from attrs.filters import exclude
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from financial_reports.src.data_extraction import (DATE_FORMAT, Asset,
-                                                   date_to_str,
+from src.data_extraction import (DATE_FORMAT, Asset,
+                                                   compute_perf, date_to_str,
                                                    get_current_asset_data,
                                                    get_historical_data)
-from financial_reports.src.portfolio import Portfolio
+from src.portfolio import Portfolio
 
 st.set_page_config(
     page_title="Asset visualizer",
@@ -74,7 +73,8 @@ def plot_historical_chart(df:pd.DataFrame, name:str, isin:str):
 with st.form("sidebar"):
     with st.sidebar:
         asset = st.text_input(
-            "Enter an ISIN. You may also enter a name or a ticker, but you might get some errors.\nPrefilled with MC, the ticker of LVMH stock.",
+            "Enter an ISIN. You may also enter a name or a ticker, but you might get some errors."
+            "\nPrefilled with MC, the ticker of LVMH stock.",
             value = st.session_state.get('last_asset','MC'),
             placeholder = "ISIN, Ticker.",
             key='last_asset'
@@ -107,7 +107,10 @@ with st.form("sidebar"):
 
             with historic_chart:
                 st.subheader(f"Historical prices {asset_as_dict['currency']}")
-                ic(asset_obj.quotations.keys())
+                perf_dict = pd.DataFrame([{key:compute_perf(asset_obj.quotations[key])
+                                           for key in asset_obj.quotations }]).T
+                perf_dict.columns = ['Performance']
+                st.dataframe(perf_dict)
                 st.write('You can view the chart in full screen and zoom in the period by selecting the wanted period.')
                 st.plotly_chart(
                     plot_historical_chart(asset_obj.quotations['inception'], asset_as_dict["name"], asset_as_dict["isin"])
@@ -294,9 +297,16 @@ with details_col:
                     ],
                 )
                 st.rerun()
+                
 
-    st.dataframe(portfolio.assets_summary, hide_index=True)
     if len(portfolio.assets_summary['isin']) > 0:
+        st.dataframe(portfolio.assets_summary, hide_index=True,
+                 column_config={'operations':None})
+        filled_area_plot = px.area(portfolio.asset_values, x='date', y='value',
+                               color='name')
+        st.subheader('Historical records')
+        st.plotly_chart(filled_area_plot, use_container_width=True)
+
         total_assets_comp = [{'name': d['name'], 'value': d['value']*k}
              for i, (a, k) in enumerate(zip(portfolio.assets_summary['isin'].tolist(),
                                   portfolio.assets_summary['proportion'].tolist()))

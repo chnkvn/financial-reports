@@ -2,7 +2,7 @@ import os
 import sys
 import time
 import unittest
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+# sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from financial_reports.src.data_extraction import Asset, get_current_asset_data
 

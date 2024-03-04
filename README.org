@@ -17,7 +17,7 @@ CLOSED: [2024-02-12 Mon 17:18]
 - ponderation asset
 
 ** Metrics
-- TRI
+- TRI Portfolio
 - % PV/MV
 - PV/MV
 - Invested amount
@@ -50,7 +50,25 @@ from icecream import ic
 
 DATE_FORMAT = '%Y-%m-%d'
 TODAY = date.today()
-
+map_period_to_filter = {
+    'inception': '',
+    f'{TODAY.year-1}':f"where date >='{TODAY.year-1}-01-01' and date <'{TODAY.year}-01-01'",
+    'ytd':f"where date >='{TODAY.year}-01-01' and date <'{TODAY.year+1}-01-01'",
+    '1week': f'''WHERE date >= '{str(TODAY-timedelta(weeks=1))}'
+    AND date <= '{str(TODAY)}' ''',
+    '1month': f'''WHERE date >= '{str(TODAY-timedelta(30))}'
+    AND date <= '{str(TODAY)}' ''',
+    '3months': f'''WHERE date >= '{str(TODAY-timedelta(91))}'
+    AND date <= '{str(TODAY)}' ''',
+    '6months': f'''WHERE date >= '{str(TODAY-timedelta(184))}'
+    AND date <= '{str(TODAY)}' ''',
+    '1year': f'''WHERE date >= '{str(date(year=TODAY.year-1,month=TODAY.month, day=TODAY.day))}'
+    AND date <= '{str(TODAY)}' ''',
+    '3years': f'''WHERE date >= '{str(date(year=TODAY.year-3,month=TODAY.month, day=TODAY.day))}'
+    AND date <= '{str(TODAY)}' ''',
+    '5years': f'''WHERE date >= '{str(date(year=TODAY.year-5,month=TODAY.month, day=TODAY.day))}'
+    AND date <= '{str(TODAY)}' ''',
+}
 def date_to_str(date:datetime)-> str:
     if isinstance(date, datetime):
         #return date.strftime(DATE_FORMAT)
@@ -128,33 +146,15 @@ class Asset:
             data['lastDividende'])
 
     @property
-    def quotations(self):
+    def quotations(self, filter = map_period_to_filter):
         """Return quotations"""
         if self._quotations is None:
             historical_data_df = get_historical_data(self.symbol)
             # close prices : c
-            map_period_to_filter = {
-                'inception': '',
-                f'{TODAY.year-1}':f"where date >='{TODAY.year-1}-01-01' and date <'{TODAY.year}-01-01'",
-                'ytd':f"where date >='{TODAY.year}-01-01' and date <'{TODAY.year+1}-01-01'",
-                '1week': f'''WHERE date >= '{str(TODAY-timedelta(weeks=1))}' 
-                AND date <= '{str(TODAY)}' ''',
-                '1month': f'''WHERE date >= '{str(TODAY-timedelta(30))}'
-                AND date <= '{str(TODAY)}' ''',
-                '3months': f'''WHERE date >= '{str(TODAY-timedelta(91))}'
-                AND date <= '{str(TODAY)}' ''',
-                '6months': f'''WHERE date >= '{str(TODAY-timedelta(184))}'
-                AND date <= '{str(TODAY)}' ''',
-                '1year': f'''WHERE date >= '{str(date(year=TODAY.year-1,month=TODAY.month, day=TODAY.day))}'
-                AND date <= '{str(TODAY)}' ''',
-                '3years': f'''WHERE date >= '{str(date(year=TODAY.year-3,month=TODAY.month, day=TODAY.day))}'
-                AND date <= '{str(TODAY)}' ''',
-                '5years': f'''WHERE date >= '{str(date(year=TODAY.year-5,month=TODAY.month, day=TODAY.day))}'
-                AND date <= '{str(TODAY)}' ''',
-            }
+            # Create dataframes for each period and store them in a dict
             self._quotations = {period: duckdb.sql(
                 f'''
-                select date, c
+                select CAST(date AS DATE) date, c
                 from historical_data_df
                 {map_period_to_filter.get(period, '')}
                 ORDER BY date''').df()
@@ -290,6 +290,15 @@ def get_historical_data(bourso_ticker:str)-> pd.DataFrame:
     df = pd.DataFrame(req.json()['d']['QuoteTab'])
     # convert to datetime object
     df['date'] = pd.to_datetime(df['d'], unit='D').dt.date
+    # ensure to get all the dates since inception. to avoid missing values in charts
+    start_date = df['date'].min() 
+    all_dates = {'date': [start_date + timedelta(days=x) for x in range((TODAY-start_date).days +1)]}
+    date_df = pd.DataFrame.from_dict(all_dates)
+    date_df['date'] = pd.to_datetime(date_df['date']).dt.date
+    # merge the two dateframes
+    df = pd.merge(date_df, df, how='left', on='date')
+    # forward fill missing values
+    df = df.ffill()
     return df
  
 #+end_src
@@ -310,7 +319,7 @@ import os
 import sys
 import time
 import unittest
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+# sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from financial_reports.src.data_extraction import Asset, get_current_asset_data
 
@@ -383,13 +392,17 @@ from datetime import date
 from itertools import chain, pairwise
 from math import floor
 from pathlib import Path
-
+from pyxirr import xirr
 import duckdb
 import pandas as pd
 import srsly
 from attrs import define, field
-from financial_reports.src.data_extraction import (DATE_FORMAT, TODAY, Asset,
-                                                   compute_perf, date_to_str,
+from src.data_extraction import (DATE_FORMAT,
+                                                   TODAY,
+                                                   map_period_to_filter,
+                                                   Asset,
+                                                   compute_perf,
+                                                   date_to_str,
                                                    get_current_asset_data,
                                                    get_historical_data)
 from icecream import ic
@@ -405,6 +418,8 @@ class Portfolio:
     dict_of_assets:dict = field(init=False)
     operations_df:pd.DataFrame = field(init=False)
     _assets_summary: pd.DataFrame = None
+    _asset_values: pd.DataFrame = None
+    
     def __attrs_post_init__(self):
         self.jsonl_ptf_path = f"data/jsonl/{self.name}.jsonl"
         self.csv_ptf_path = f"data/db/{self.name}.csv"
@@ -441,11 +456,15 @@ class Portfolio:
         if self._assets_summary is None:
             df = self.operations_df.copy()
             assets = []
+            
             for isin in df['isin'].unique():
+                ic(self.dict_of_assets[isin].name,)
                 isin_df = duckdb.sql(f"""
                 select * from df where isin = '{isin}'
                 order by date""").df()
-                quantity, total_dividends = self.get_asset_quantity(isin_df)
+                quantity, total_dividends, track_quantity = self.get_asset_quantity(isin_df)
+                isin_df['cumulative_quantity'] = track_quantity
+                # ic(isin_df)
                 summary = {'name':self.dict_of_assets[isin].name,
                            'isin': isin,
                            'asset':self.dict_of_assets[isin].asset,
@@ -461,23 +480,27 @@ class Portfolio:
                            'Perf 1y': compute_perf(self.dict_of_assets[isin].quotations['1year']),
                            'Perf 3y': compute_perf(self.dict_of_assets[isin].quotations['3years']),
                            'Perf 5y': compute_perf(self.dict_of_assets[isin].quotations['5years']),
-                           'TRI ytd':0,
-                           'TRI last year':0,
-                           'TRI since 1st buy':0,
-                           
-                               }
+                           'TRI ytd':self.compute_xirr(isin_df,isin, period='ytd'),
+                           f'TRI {TODAY.year-1}':self.compute_xirr(isin_df,isin,period=f'{TODAY.year-1}'),
+                           'TRI since 1st buy': self.compute_xirr(isin_df, isin),
+                           'operations':isin_df
+                           }
                 summary['valuation'] = summary['quantity']*summary['latest']
+                
                 assets.append(summary)
-                self._assets_summary = pd.DataFrame(assets)
-                self._assets_summary['proportion'] = round(
-                    self._assets_summary['valuation']/self._assets_summary['valuation'].sum(),
-                    2)
+                
+            self._assets_summary = pd.DataFrame(assets)
+            self._assets_summary['proportion'] = round(
+            self._assets_summary['valuation']/self._assets_summary['valuation'].sum(),
+                2)
+            
         return self._assets_summary
     
     def get_asset_quantity(self, df:pd.DataFrame, limit_day:date=TODAY):
         """Get the total number of parts of an asset and the total dividends earned"""
         quantity = 0
         total_dividends = 0
+        tracking = []
         for op in df.itertuples(index=False, name='Row'):
             if op.date > str(limit_day):
                 break
@@ -489,10 +512,96 @@ class Portfolio:
                 quantity = floor(op.value*quantity)
             elif op.operation == 'Dividend':
                 total_dividends += quantity*op.value
-        return quantity, total_dividends
+            tracking.append(quantity)
+        return quantity, total_dividends, tracking
 
+    def compute_xirr(self, df:pd.DataFrame, isin:str, period='inception'):
+        # add Initial value, last value
+        quotations_df = self.dict_of_assets[isin].quotations[period]
+        cashflows_df = duckdb.sql(f"""
+        with first_last_quotations as (
+        select * from (select
+        date,
+        quotations_df.c as value,
+        row_number() over(order by date) as rn,
+        count(*) over() as total_count
+        from quotations_df
+        order by date)
+        full join df
+        using (date, value)
+        where rn = 1 or rn = total_count or rn is null
+        order by date),
+        
+        lag_df as (select *,
+        COALESCE(quantity, lag(quantity) over(order by date)) as quantity_,
+        COALESCE(cumulative_quantity,
+        lag(cumulative_quantity) over(order by date)) as cumulative_quantity_
+        from first_last_quotations)
 
+        select date, operation, quantity_ as quantity, value,
+        (CASE
+        WHEN operation = 'Buy' THEN -quantity_*value
+        WHEN operation = 'Split' THEN 0
+        WHEN operation IS NULL and rn=1 THEN -COALESCE(cumulative_quantity_, 0)*value
+        WHEN operation IS NULL and rn!=1 THEN COALESCE(cumulative_quantity_,
+        lag(cumulative_quantity_) over())*value
+        ELSE quantity_*value
+        END) as cashflow
+        from lag_df
+        {map_period_to_filter.get(period, '')}
+  
 
+        """).df()
+        if period == 'ytd':
+            cashflows_df.at[len(cashflows_df.index) - 1, 'date'] = date(year=TODAY.year, month=12, day=31)
+        cashflows_df.to_csv(f'{isin}_{period}.csv')
+        
+        irr = xirr(cashflows_df['date'], cashflows_df['cashflow'])*100
+
+        return f'{irr:.2f}%'
+
+    @property
+    def asset_values(self):
+        """"""
+        if self._asset_values is None:
+            isins = self.operations_df['isin'].unique()
+            all_quotations_df = []
+            for isin in isins:
+                isin_df = self.dict_of_assets[isin].quotations['inception'].copy()
+                all_quotations_df.append(duckdb.sql(
+                f""" select *, '{self.dict_of_assets[isin].name}' as name from isin_df
+                """).df())
+                
+            all_quotations_df = pd.concat(all_quotations_df)
+            # can't join on operation_df, because we need cumulative quantities.
+            cum_quantities_df = pd.concat([df for df in self.assets_summary['operations']])
+            all_quotations_df['date']=pd.to_datetime(all_quotations_df['date']).dt.date
+            
+            # Fill null value with last non null value for each asset
+            self._asset_values = duckdb.sql(
+                '''
+                with grouped as (
+                select date, name,
+                cumulative_quantity,
+                count(cumulative_quantity) over(partition by name order by date) as grouper
+                from all_quotations_df aqdf
+                left join cum_quantities_df cqdf
+                using(date, name)
+                where date >= (select min(date) from cum_quantities_df)
+                order by date
+                )
+                select * from (select date, name,
+                max(cumulative_quantity)
+                over(partition by name, grouper
+                order by date) as value
+                from grouped
+                order by date)
+                '''
+            ).df()
+            ic(self._asset_values.tail(20))
+        return self._asset_values
+        
+    
 
 #+end_src
 * Streamlit
@@ -516,17 +625,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 import srsly
 import streamlit as st
-from attrs import field, asdict
+from attrs import asdict, field
 from attrs.filters import exclude
 from icecream import ic
-from attrs.filters import exclude
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from financial_reports.src.data_extraction import (DATE_FORMAT, Asset,
-                                                   date_to_str,
+from src.data_extraction import (DATE_FORMAT, Asset,
+                                                   compute_perf, date_to_str,
                                                    get_current_asset_data,
                                                    get_historical_data)
-from financial_reports.src.portfolio import Portfolio
+from src.portfolio import Portfolio
 
 st.set_page_config(
     page_title="Asset visualizer",
@@ -586,7 +694,8 @@ def plot_historical_chart(df:pd.DataFrame, name:str, isin:str):
 with st.form("sidebar"):
     with st.sidebar:
         asset = st.text_input(
-            "Enter an ISIN. You may also enter a name or a ticker, but you might get some errors.\nPrefilled with MC, the ticker of LVMH stock.",
+            "Enter an ISIN. You may also enter a name or a ticker, but you might get some errors."
+            "\nPrefilled with MC, the ticker of LVMH stock.",
             value = st.session_state.get('last_asset','MC'),
             placeholder = "ISIN, Ticker.",
             key='last_asset'
@@ -619,7 +728,10 @@ with st.form("sidebar"):
 
             with historic_chart:
                 st.subheader(f"Historical prices {asset_as_dict['currency']}")
-                ic(asset_obj.quotations.keys())
+                perf_dict = pd.DataFrame([{key:compute_perf(asset_obj.quotations[key])
+                                           for key in asset_obj.quotations }]).T
+                perf_dict.columns = ['Performance']
+                st.dataframe(perf_dict)
                 st.write('You can view the chart in full screen and zoom in the period by selecting the wanted period.')
                 st.plotly_chart(
                     plot_historical_chart(asset_obj.quotations['inception'], asset_as_dict["name"], asset_as_dict["isin"])
@@ -818,9 +930,16 @@ with details_col:
                     ],
                 )
                 st.rerun()
+                
 
-    st.dataframe(portfolio.assets_summary, hide_index=True)
     if len(portfolio.assets_summary['isin']) > 0:
+        st.dataframe(portfolio.assets_summary, hide_index=True,
+                 column_config={'operations':None})
+        filled_area_plot = px.area(portfolio.asset_values, x='date', y='value',
+                               color='name')
+        st.subheader('Historical records')
+        st.plotly_chart(filled_area_plot, use_container_width=True)
+
         total_assets_comp = [{'name': d['name'], 'value': d['value']*k}
              for i, (a, k) in enumerate(zip(portfolio.assets_summary['isin'].tolist(),
                                   portfolio.assets_summary['proportion'].tolist()))

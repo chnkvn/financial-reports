@@ -15,7 +15,25 @@ from icecream import ic
 
 DATE_FORMAT = '%Y-%m-%d'
 TODAY = date.today()
-
+map_period_to_filter = {
+    'inception': '',
+    f'{TODAY.year-1}':f"where date >='{TODAY.year-1}-01-01' and date <'{TODAY.year}-01-01'",
+    'ytd':f"where date >='{TODAY.year}-01-01' and date <'{TODAY.year+1}-01-01'",
+    '1week': f'''WHERE date >= '{str(TODAY-timedelta(weeks=1))}'
+    AND date <= '{str(TODAY)}' ''',
+    '1month': f'''WHERE date >= '{str(TODAY-timedelta(30))}'
+    AND date <= '{str(TODAY)}' ''',
+    '3months': f'''WHERE date >= '{str(TODAY-timedelta(91))}'
+    AND date <= '{str(TODAY)}' ''',
+    '6months': f'''WHERE date >= '{str(TODAY-timedelta(184))}'
+    AND date <= '{str(TODAY)}' ''',
+    '1year': f'''WHERE date >= '{str(date(year=TODAY.year-1,month=TODAY.month, day=TODAY.day))}'
+    AND date <= '{str(TODAY)}' ''',
+    '3years': f'''WHERE date >= '{str(date(year=TODAY.year-3,month=TODAY.month, day=TODAY.day))}'
+    AND date <= '{str(TODAY)}' ''',
+    '5years': f'''WHERE date >= '{str(date(year=TODAY.year-5,month=TODAY.month, day=TODAY.day))}'
+    AND date <= '{str(TODAY)}' ''',
+}
 def date_to_str(date:datetime)-> str:
     if isinstance(date, datetime):
         #return date.strftime(DATE_FORMAT)
@@ -93,33 +111,15 @@ class Asset:
             data['lastDividende'])
 
     @property
-    def quotations(self):
+    def quotations(self, filter = map_period_to_filter):
         """Return quotations"""
         if self._quotations is None:
             historical_data_df = get_historical_data(self.symbol)
             # close prices : c
-            map_period_to_filter = {
-                'inception': '',
-                f'{TODAY.year-1}':f"where date >='{TODAY.year-1}-01-01' and date <'{TODAY.year}-01-01'",
-                'ytd':f"where date >='{TODAY.year}-01-01' and date <'{TODAY.year+1}-01-01'",
-                '1week': f'''WHERE date >= '{str(TODAY-timedelta(weeks=1))}' 
-                AND date <= '{str(TODAY)}' ''',
-                '1month': f'''WHERE date >= '{str(TODAY-timedelta(30))}'
-                AND date <= '{str(TODAY)}' ''',
-                '3months': f'''WHERE date >= '{str(TODAY-timedelta(91))}'
-                AND date <= '{str(TODAY)}' ''',
-                '6months': f'''WHERE date >= '{str(TODAY-timedelta(184))}'
-                AND date <= '{str(TODAY)}' ''',
-                '1year': f'''WHERE date >= '{str(date(year=TODAY.year-1,month=TODAY.month, day=TODAY.day))}'
-                AND date <= '{str(TODAY)}' ''',
-                '3years': f'''WHERE date >= '{str(date(year=TODAY.year-3,month=TODAY.month, day=TODAY.day))}'
-                AND date <= '{str(TODAY)}' ''',
-                '5years': f'''WHERE date >= '{str(date(year=TODAY.year-5,month=TODAY.month, day=TODAY.day))}'
-                AND date <= '{str(TODAY)}' ''',
-            }
+            # Create dataframes for each period and store them in a dict
             self._quotations = {period: duckdb.sql(
                 f'''
-                select date, c
+                select CAST(date AS DATE) date, c
                 from historical_data_df
                 {map_period_to_filter.get(period, '')}
                 ORDER BY date''').df()
@@ -249,6 +249,15 @@ def get_historical_data(bourso_ticker:str)-> pd.DataFrame:
     df = pd.DataFrame(req.json()['d']['QuoteTab'])
     # convert to datetime object
     df['date'] = pd.to_datetime(df['d'], unit='D').dt.date
+    # ensure to get all the dates since inception. to avoid missing values in charts
+    start_date = df['date'].min() 
+    all_dates = {'date': [start_date + timedelta(days=x) for x in range((TODAY-start_date).days +1)]}
+    date_df = pd.DataFrame.from_dict(all_dates)
+    date_df['date'] = pd.to_datetime(date_df['date']).dt.date
+    # merge the two dateframes
+    df = pd.merge(date_df, df, how='left', on='date')
+    # forward fill missing values
+    df = df.ffill()
     return df
 
 if __name__ == '__main__':
