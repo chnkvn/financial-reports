@@ -37,7 +37,9 @@ for save_path in ["data/jsonl", "data/db"]:
 ptf_name = st.text_input('Name of the portfolio (This name will be used the save and load your portfolio.)',
                          st.session_state.get('ptf_name', 'MyPortfolio'),
                          placeholder='MyPortfolio',
-                         key='ptf_name')
+                         key='ptf_name',
+                         #on_change=st.rerun()
+                         )
 
 
 
@@ -118,6 +120,96 @@ with st.form("sidebar"):
 
 operations_col, details_col= st.tabs(["Portfolio Operations", "Portfolio details"])
 
+## Portfolio tab
+with details_col:
+    if submitted and adding_to_portfolio:
+        portfolio.dict_of_assets[asset_obj.isin]= asset_obj
+
+        srsly.write_jsonl(portfolio.jsonl_ptf_path,
+                          [asdict(a, filter=exclude('_quotations'))
+                           for a in portfolio.dict_of_assets.values()])
+
+    with st.expander('Followed assets'):
+        ptf_df = pd.DataFrame(
+            [
+                {
+                    k: v
+                    for k, v in asdict(a).items()
+                    if k
+                    not in [
+                        "tradeDate",
+                        "assetsComposition",
+                        "url",
+                        "referenceIndex",
+                        "morningstarCategory",
+                    ]
+                }
+                for a in portfolio.dict_of_assets.values()
+            ]
+        )
+
+        ptf_df.insert(0, "in_ptf", True)
+        with st.form("update_assets"):
+            ptf_df = st.data_editor(
+                ptf_df,
+                column_config={
+                    "in_ptf": st.column_config.CheckboxColumn(
+                        "In portfolio?",
+                        help="Select your current assets.",
+                        default=True,
+                        
+                    ),
+                    '_quotations':None
+                },
+                disabled=[column for column in ptf_df.columns if column != "in_ptf"],
+                hide_index=True,
+            )
+            update_assets = st.form_submit_button("Update assets")
+            if update_assets:
+                keep_isin = duckdb.sql("""SELECT isin from ptf_df where in_ptf='True'""").fetchall()
+                srsly.write_jsonl(
+                    portfolio.jsonl_ptf_path,
+                    [
+                        asdict(dict_of_assets[a])
+                        for a in portfolio.dict_of_assets
+                        if a in set(chain.from_iterable(keep_isin))
+                    ],
+                )
+                st.rerun()
+                
+    
+    if len(portfolio.operations_df['isin']) > 0:
+        st.subheader('Portfolio lines')
+        st.dataframe(portfolio.assets_summary.round(2), hide_index=True,
+                     column_config={'operations':None},
+                     )
+        st.subheader('Overall stats')
+        st.dataframe(portfolio.portfolio_summary.round(2), hide_index=True)
+        filled_area_plot = px.area(portfolio.asset_values, x='date', y='value',
+                               color='name')
+        st.subheader('Historical records')
+        st.plotly_chart(filled_area_plot, use_container_width=True)
+
+        total_assets_comp = [{'name': d['name'], 'value': d['value']*k}
+             for i, (a, k) in enumerate(zip(portfolio.assets_summary['isin'].tolist(),
+                                  portfolio.assets_summary['proportion (%)'].tolist()))
+            for d in portfolio.dict_of_assets[a].assetsComposition
+            ]
+        
+        
+        ptf_asset_comp, ptf_asset_proportion = st.columns(2)
+        with ptf_asset_comp:
+            st.subheader("Portfolio asset repartition")
+            ptf_asset_comp_chart = ptf_piechart(total_assets_comp)
+            st.plotly_chart(ptf_asset_comp_chart, use_container_width=True)
+
+        with ptf_asset_proportion:
+            st.subheader('Proportion of each asset in your portfolio')
+            proportion_fig = px.pie(portfolio.assets_summary,
+                                    values='valuation', names='name',
+                                    title='Proportion of each asset in your portfolio')
+            st.plotly_chart(proportion_fig, use_container_width=True)
+
 with operations_col:
     st.subheader('Portfolio operations')
     st.dataframe(portfolio.operations_df, hide_index=True)
@@ -158,13 +250,13 @@ with operations_col:
                             and isin='{st.session_state["asset_operation_add"][1]}'
                             group by operation""").fetchall()
                             asset_operations = {op: value for (op, value) in asset_operations}
-                            
+
                             argB = st.number_input("Quantity",
                                                    value=1.0,
                                                    min_value=0.0,
                                                    max_value=asset_operations.get('Buy', 0 ) - asset_operations.get('Sell', 0))
                             argA = st.number_input("Price", min_value=0.00)
-                            
+
                         except Exception as e:
                             ic(e)
                             # Cannot sell assets we do not own.
@@ -174,8 +266,8 @@ with operations_col:
                 elif operation_type == 'Dividend':
 
                     argA = st.number_input("Dividend value", min_value=0.01)
-               
-            
+
+
             elif st.session_state.get('operation_type_add', None) =='Split':
                 argA =  st.text_input("Split ratio",
                                       placeholder = 'Enter the split ratio, e.g. "11:10" or "2:1"'
@@ -190,7 +282,7 @@ with operations_col:
             # Check all arguments are filled to enable add operation button
             if all([operation_on_asset is not None,operation_type is not None]):
                 st.session_state['invalid_operation'] = 0
-                
+
             # Append operation to csv
             if st.button('Add operation', disabled=st.session_state.get('invalid_operation', 1)):
                 ic(st.session_state['invalid_operation'])
@@ -209,11 +301,11 @@ with operations_col:
                                   columns=[col for col in portfolio.operations_df.columns
                                            if not col.startswith('id')])
                 #elif operation_type in ['Dividend', 'Split']:
-                
+
                 #duckdb.sql(f'COPY operations TO {csv_ptf_path}')
                 st.rerun()
 
-    # Delete row                
+    # Delete row
     with del_row:
         with st.form('delete_row'):
             try:
@@ -244,86 +336,3 @@ with operations_col:
                  where rnt.id != {row_number}
                  """).write_csv(portfolio.csv_ptf_path)
                  st.rerun()
-
-## Portfolio tab
-with details_col:
-    if submitted and adding_to_portfolio:
-        portfolio.dict_of_assets[asset_obj.isin]= asset_obj
-
-        srsly.write_jsonl(portfolio.jsonl_ptf_path, [asdict(a, filter=exclude('_quotations')) for a in portfolio.dict_of_assets.values()])
-
-    with st.expander('Followed assets'):
-        ptf_df = pd.DataFrame(
-            [
-                {
-                    k: v
-                    for k, v in asdict(a).items()
-                    if k
-                    not in [
-                        "tradeDate",
-                        "assetsComposition",
-                        "url",
-                        "referenceIndex",
-                        "morningstarCategory",
-                    ]
-                }
-                for a in portfolio.dict_of_assets.values()
-            ]
-        )
-
-        ptf_df.insert(0, "in_ptf", True)
-        with st.form("update_assets"):
-            ptf_df = st.data_editor(
-                ptf_df,
-                column_config={
-                    "in_ptf": st.column_config.CheckboxColumn(
-                        "In portfolio?",
-                        help="Select your current assets.",
-                        default=True,
-                    )
-                },
-                disabled=[column for column in ptf_df.columns if column != "in_ptf"],
-                hide_index=True,
-            )
-            update_assets = st.form_submit_button("Update assets")
-            if update_assets:
-                keep_isin = duckdb.sql("""SELECT isin from ptf_df where in_ptf='True'""").fetchall()
-                srsly.write_jsonl(
-                    portfolio.jsonl_ptf_path,
-                    [
-                        asdict(dict_of_assets[a])
-                        for a in portfolio.dict_of_assets
-                        if a in set(chain.from_iterable(keep_isin))
-                    ],
-                )
-                st.rerun()
-                
-
-    if len(portfolio.assets_summary['isin']) > 0:
-        st.dataframe(portfolio.assets_summary, hide_index=True,
-                     column_config={'operations':None},
-                     )
-        filled_area_plot = px.area(portfolio.asset_values, x='date', y='value',
-                               color='name')
-        st.subheader('Historical records')
-        st.plotly_chart(filled_area_plot, use_container_width=True)
-
-        total_assets_comp = [{'name': d['name'], 'value': d['value']*k}
-             for i, (a, k) in enumerate(zip(portfolio.assets_summary['isin'].tolist(),
-                                  portfolio.assets_summary['proportion'].tolist()))
-            for d in portfolio.dict_of_assets[a].assetsComposition
-            ]
-        
-        
-        ptf_asset_comp, ptf_asset_proportion = st.columns(2)
-        with ptf_asset_comp:
-            st.subheader("Portfolio asset repartition")
-            ptf_asset_comp_chart = ptf_piechart(total_assets_comp)
-            st.plotly_chart(ptf_asset_comp_chart, use_container_width=True)
-
-        with ptf_asset_proportion:
-            st.subheader('Proportion of each asset in your portfolio')
-            proportion_fig = px.pie(portfolio.assets_summary,
-                                    values='valuation', names='name',
-                                    title='Proportion of each asset in your portfolio')
-            st.plotly_chart(proportion_fig, use_container_width=True)
