@@ -48,37 +48,46 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag
 from icecream import ic
 
-DATE_FORMAT = '%Y-%m-%d'
+DATE_FORMAT = "%Y-%m-%d"
 TODAY = date.today()
 map_period_to_filter = {
-    'inception': '',
-    f'{TODAY.year-1}':f"where date >='{TODAY.year-1}-01-01' and date <'{TODAY.year}-01-01'",
-    'ytd':f"where date >='{TODAY.year}-01-01' and date <'{TODAY.year+1}-01-01'",
-    '1week': f'''WHERE date >= '{str(TODAY-timedelta(weeks=1))}'
-    AND date <= '{str(TODAY)}' ''',
-    '1month': f'''WHERE date >= '{str(TODAY-timedelta(30))}'
-    AND date <= '{str(TODAY)}' ''',
-    '3months': f'''WHERE date >= '{str(TODAY-timedelta(91))}'
-    AND date <= '{str(TODAY)}' ''',
-    '6months': f'''WHERE date >= '{str(TODAY-timedelta(184))}'
-    AND date <= '{str(TODAY)}' ''',
-    '1year': f'''WHERE date >= '{str(date(year=TODAY.year-1,month=TODAY.month, day=TODAY.day))}'
-    AND date <= '{str(TODAY)}' ''',
-    '3years': f'''WHERE date >= '{str(date(year=TODAY.year-3,month=TODAY.month, day=TODAY.day))}'
-    AND date <= '{str(TODAY)}' ''',
-    '5years': f'''WHERE date >= '{str(date(year=TODAY.year-5,month=TODAY.month, day=TODAY.day))}'
-    AND date <= '{str(TODAY)}' ''',
+    "inception": "",
+    f"{TODAY.year-1}": f"where date >='{TODAY.year-1}-01-01' and date <'{TODAY.year}-01-01'",
+    "ytd": f"where date >='{TODAY.year}-01-01' and date <'{TODAY.year+1}-01-01'",
+    "1week": f"""WHERE date >= '{str(TODAY-timedelta(weeks=1))}'
+    AND date <= '{str(TODAY)}' """,
+    "1month": f"""WHERE date >= '{str(TODAY-timedelta(30))}'
+    AND date <= '{str(TODAY)}' """,
+    "3months": f"""WHERE date >= '{str(TODAY-timedelta(91))}'
+    AND date <= '{str(TODAY)}' """,
+    "6months": f"""WHERE date >= '{str(TODAY-timedelta(184))}'
+    AND date <= '{str(TODAY)}' """,
+    "1year": f"""WHERE date >= '{str(date(year=TODAY.year-1,month=TODAY.month, day=TODAY.day))}'
+    AND date <= '{str(TODAY)}' """,
+    "3years": f"""WHERE date >= '{str(date(year=TODAY.year-3,month=TODAY.month, day=TODAY.day))}'
+    AND date <= '{str(TODAY)}' """,
+    "5years": f"""WHERE date >= '{str(date(year=TODAY.year-5,month=TODAY.month, day=TODAY.day))}'
+    AND date <= '{str(TODAY)}' """,
 }
-def date_to_str(date:datetime)-> str:
+
+
+def date_to_str(date: datetime) -> str:
     if isinstance(date, datetime):
-        #return date.strftime(DATE_FORMAT)
+        # return date.strftime(DATE_FORMAT)
         return str(date.date())
     return date
+
+
 def replace_stringify_date_objects_iterable(iterable: Iterable) -> Iterable:
-    if isinstance(iterable,dict):
-        return {key: (date_to_str(iterable[key])
-                      if isinstance(iterable[key],(datetime,date))
-                      else iterable[key]) for key in iterable}
+    if isinstance(iterable, dict):
+        return {
+            key: (
+                date_to_str(iterable[key])
+                if isinstance(iterable[key], (datetime, date))
+                else iterable[key]
+            )
+            for key in iterable
+        }
     else:
         iterable = [date_to_str(x) if isinstance(x, datetime) else x for x in iter()]
         if isinstance(iterable, tuple):
@@ -87,17 +96,23 @@ def replace_stringify_date_objects_iterable(iterable: Iterable) -> Iterable:
             return set(iterable)
         return iterable
 
-def compute_perf(df:pd.DataFrame):
+
+def compute_perf(df: pd.DataFrame):
     """Compute the performance of an asset given a dataframe"""
-    min_value = duckdb.sql("""
+    min_value = duckdb.sql(
+        """
     SELECT date, c from df
     where date = (select min(date) from df )
-     """).fetchall()[0]
-    max_value = duckdb.sql("""
+     """
+    ).fetchall()[0]
+    max_value = duckdb.sql(
+        """
     SELECT date, c from df
     where date = (select max(date) from df)
-     """).fetchall()[0]
-    return f'{100*((max_value[1]/min_value[1])-1):.2f}%'
+     """
+    ).fetchall()[0]
+    return f"{100*((max_value[1]/min_value[1])-1):.2f}%"
+
 
 @define
 class Asset:
@@ -105,21 +120,21 @@ class Asset:
     isin: str
     symbol: str
     currency: str
-    name:str
+    name: str
     latest: float = field(converter=float)
     variation: float
     tradeDate: str = field(repr=date_to_str)
     url: str
-    referenceIndex: str 
+    referenceIndex: str
     morningstarCategory: str
     assetsComposition: dict
-    #sectors: list
+    # sectors: list
     lastDividende: dict = field(repr=replace_stringify_date_objects_iterable)
     _quotations: list = None
-    
+
     def __hash__(self):
         return hash(self.isin)
-    
+
     def __eq__(self, other):
         if not isinstance(other, Asset):
             # only equality tests to other `structure` instances are supported
@@ -127,68 +142,76 @@ class Asset:
         return self.isin == other.isin
 
     @classmethod
-    def from_boursorama(cls, data:dict):
+    def from_boursorama(cls, data: dict):
 
         return cls(
-            data['asset'],
-            data['isin'],
-            data['symbol'],
-            data['currency'],
-            data['name'],
-            data['latest'],
-            data['variation'],
-            data['tradeDate'],
-            data['url'],
-            data['referenceIndex'],
-            data['morningstarCategory'],
-            data['assetsComposition'],
-            #data['sectors'],
-            data['lastDividende'])
+            data["asset"],
+            data["isin"],
+            data["symbol"],
+            data["currency"],
+            data["name"],
+            data["latest"],
+            data["variation"],
+            data["tradeDate"],
+            data["url"],
+            data["referenceIndex"],
+            data["morningstarCategory"],
+            data["assetsComposition"],
+            # data['sectors'],
+            data["lastDividende"],
+        )
 
     @property
-    def quotations(self, filter = map_period_to_filter):
+    def quotations(self, filter=map_period_to_filter):
         """Return quotations"""
         if self._quotations is None:
             historical_data_df = get_historical_data(self.symbol)
             # close prices : c
             # Create dataframes for each period and store them in a dict
-            self._quotations = {period: duckdb.sql(
-                f'''
+            self._quotations = {
+                period: duckdb.sql(
+                    f"""
                 select CAST(date AS DATE) date, c
                 from historical_data_df
                 {map_period_to_filter.get(period, '')}
-                ORDER BY date''').df()
-                                for period in map_period_to_filter}
-            
+                ORDER BY date"""
+                ).df()
+                for period in map_period_to_filter
+            }
+
         return self._quotations
-
-
-
-
 #+end_src
 ** Get relevant data
 #+begin_src python
-def unicode_escape(s:str) -> str:
+def unicode_escape(s: str) -> str:
     """Remove unicode sequences from a string s"""
-    return s.encode('utf8').decode('unicode_escape')
+    return s.encode("utf8").decode("unicode_escape")
 
-def extract_chart_data(soup:BeautifulSoup, id_:str ) -> dict:
+
+def extract_chart_data(soup: BeautifulSoup, id_: str) -> dict:
     """Extract amChartData key from source code"""
     try:
         # Find the id in source code
-        portfolio = soup.find_all('div', id=id_)
+        portfolio = soup.find_all("div", id=id_)
         # Extract the tags, remove NavigableString objects
-        tags = list(chain.from_iterable(unicode_escape(x.get_text()).strip().split('\n')
-                                        for x in portfolio[0].parent.contents if isinstance(x, Tag)))
+        tags = list(
+            chain.from_iterable(
+                unicode_escape(x.get_text()).strip().split("\n")
+                for x in portfolio[0].parent.contents
+                if isinstance(x, Tag)
+            )
+        )
         am_chart_data = [tag for tag in tags if '"amChartData"' in tag].pop()
         # Extract content
-        return json.loads('{'+re.search(r'"amChartData":\[\{"name":.+\]\}',
-                                        am_chart_data).group())['amChartData']
+        return json.loads(
+            "{" + re.search(r'"amChartData":\[\{"name":.+\]\}', am_chart_data).group()
+        )["amChartData"]
     except IndexError as e:
         return None
 
+
 @st.cache_data
-def get_current_asset_data(asset:str) -> dict:
+def get_current_asset_data(asset: str) -> dict:
     """From an ISIN or a asset name, returns a dictionary containing:
     - its symbol on boursorama.com
     - the latest price of the eassety
@@ -196,111 +219,165 @@ def get_current_asset_data(asset:str) -> dict:
     - its financial exchange place code
     - its trade Date
     - store the url in a new key"""
-    if asset.startswith('https://'):
+    if asset.startswith("https://"):
         r = requests.get(asset)
     else:
-        asset = asset.replace(' ', '%20')
-        r = requests.get(f'https://www.boursorama.com/recherche/{asset}/')
-    url_split = r.url.split('/')
+        asset = asset.replace(" ", "%20")
+        r = requests.get(f"https://www.boursorama.com/recherche/{asset}/")
+    url_split = r.url.split("/")
     soup = BeautifulSoup(json.dumps(r.content.decode("utf-8")), "lxml").body
     data = {}
     try:
         symbol = url_split[-2]
-        relevant_tag = next(iter(soup.select(f'div[data-faceplate-symbol*="{symbol}"]')))
-        name = relevant_tag.select('a[title*="Cours"]')[0].get_text().replace('\\n', '').strip()
+        relevant_tag = next(
+            iter(soup.select(f'div[data-faceplate-symbol*="{symbol}"]'))
+        )
+        name = (
+            relevant_tag.select('a[title*="Cours"]')[0]
+            .get_text()
+            .replace("\\n", "")
+            .strip()
+        )
         # Remove irrelevent starting characters, and complete the string if data-ist-init is a class
-        data = json.loads(relevant_tag['data-ist-init'].replace('\\"', '')+'"}') if relevant_tag.has_attr('data-ist-init') else {}
+        data = (
+            json.loads(relevant_tag["data-ist-init"].replace('\\"', "") + '"}')
+            if relevant_tag.has_attr("data-ist-init")
+            else {}
+        )
         if len(data) == 0:
-            date_ = relevant_tag.find_all('div', class_='\\"c-faceplate__real-time\\"')[0]
-            data['symbol'] = symbol
-            
-            data['tradeDate'] = datetime.strptime(re.search(r'[0-3][0-9]/[01][0-9]/[0-9]{4}', date_.get_text()).group(),'%d/%m/%Y')
-        else:
-            
-            data['tradeDate'] = datetime.strptime(data['tradeDate'], '%Y-%m-%d')
-        data['variation'] = relevant_tag.select('span[c-instrument--variation]')[0].get_text()
-        data['latest'] = relevant_tag.select('span[c-instrument--last]')[0].get_text().replace(' ', '')
-        data['isin'] = relevant_tag.find_all('h2', class_='\\"c-faceplate__isin\\"')[0].get_text().split(' ')[0]
+            date_ = relevant_tag.find_all("div", class_='\\"c-faceplate__real-time\\"')[
+                0
+            ]
+            data["symbol"] = symbol
 
-        data['asset'] = url_split[url_split.index('cours')-1] if 'bourse' in r.url else 'Actions'
-        data['name'] = unicode_escape(name)
-        data['url'] = r.url
-        data['currency'] = relevant_tag.find_all('span', class_ = '\\"c-faceplate__price-currency\\"').pop().get_text().strip()
+            data["tradeDate"] = datetime.strptime(
+                re.search(r"[0-3][0-9]/[01][0-9]/[0-9]{4}", date_.get_text()).group(),
+                "%d/%m/%Y",
+            )
+        else:
+
+            data["tradeDate"] = datetime.strptime(data["tradeDate"], "%Y-%m-%d")
+        data["variation"] = relevant_tag.select("span[c-instrument--variation]")[
+            0
+        ].get_text()
+        data["latest"] = (
+            relevant_tag.select("span[c-instrument--last]")[0]
+            .get_text()
+            .replace(" ", "")
+        )
+        data["isin"] = (
+            relevant_tag.find_all("h2", class_='\\"c-faceplate__isin\\"')[0]
+            .get_text()
+            .split(" ")[0]
+        )
+
+        data["asset"] = (
+            url_split[url_split.index("cours") - 1] if "bourse" in r.url else "stock"
+        )
+        data["name"] = unicode_escape(name)
+        data["url"] = r.url
+        data["currency"] = (
+            relevant_tag.find_all("span", class_='\\"c-faceplate__price-currency\\"')
+            .pop()
+            .get_text()
+            .strip()
+        )
         map_attributes = {
-            'indice de référence':'referenceIndex',
-            'catégorie morningstar': 'morningstarCategory',
-            'amChartData': 'AssetsComposition'
+            "indice de référence": "referenceIndex",
+            "catégorie morningstar": "morningstarCategory",
+            "amChartData": "AssetsComposition",
         }
         # Init entries with null values
         for v in map_attributes.values():
             data[v] = None
-        if 'bourse' in r.url:
-            additional_info = soup.find_all('p', class_='\\"c-list-info__heading')
+        if "bourse" in r.url:
+            additional_info = soup.find_all("p", class_='\\"c-list-info__heading')
             for i in additional_info:
-                attr = map_attributes.get(unicode_escape(i.get_text()).strip().lower(), unicode_escape(i.get_text()).strip())
+                attr = map_attributes.get(
+                    unicode_escape(i.get_text()).strip().lower(),
+                    unicode_escape(i.get_text()).strip(),
+                )
                 for v in i.next_siblings:
-                    v= unicode_escape(v.get_text()).strip()
-                    if '?' in v or len(v)<1:
+                    v = unicode_escape(v.get_text()).strip()
+                    if "?" in v or len(v) < 1:
                         continue
-                    elif data.get(attr, None) is None :
-                        data[attr]  =  v
+                    elif data.get(attr, None) is None:
+                        data[attr] = v
                     elif isinstance(data[attr], str):
                         data[attr] = [data[attr]] + [v]
                     else:
                         data[attr].append(v)
 
         # Composition
-        url_split.insert(-2, 'composition')
-        composition_request = requests.get('/'.join(url_split))
+        url_split.insert(-2, "composition")
+        composition_request = requests.get("/".join(url_split))
         if composition_request.status_code == 200:
-            soup = BeautifulSoup(json.dumps(composition_request.content.decode("utf-8")), "lxml").body
-            data['assetsComposition'] = extract_chart_data(soup,'\\"portfolio\\"' )
-            #data['sectors'] = extract_chart_data(soup,'\\"sector\\"' )
+            soup = BeautifulSoup(
+                json.dumps(composition_request.content.decode("utf-8")), "lxml"
+            ).body
+            data["assetsComposition"] = extract_chart_data(soup, '\\"portfolio\\"')
+            # data['sectors'] = extract_chart_data(soup,'\\"sector\\"' )
         else:
-            data['assetsComposition'] = [{"name": data['asset'], 'value': 100  }]
-            #data['sectors'] = [{'name': unicode_escape([link for link in soup.select('a[c-list-info__value]')][0].get_text()),
-             #                  'value':100}]
-        last_dividende = soup.find_all('p', string=re.compile('dernier dividende'))
-        data['lastDividende'] = {}
-        if len(last_dividende) >1:
+            data["assetsComposition"] = [{"name": data["asset"], "value": 100}]
+            # data['sectors'] = [{'name': unicode_escape([link for link in soup.select('a[c-list-info__value]')][0].get_text()),
+            #                  'value':100}]
+        last_dividende = soup.find_all("p", string=re.compile("dernier dividende"))
+        data["lastDividende"] = {}
+        if len(last_dividende) > 1:
             amount = False
             for p_tag in last_dividende:
                 for sibling in p_tag.next_siblings:
-                    if isinstance(sibling, Tag) and sibling.name=='p':
-                        if sibling.attrs['class'] in [['\\"c-list-info__value'], '\\"c-list-info__value']:
+                    if isinstance(sibling, Tag) and sibling.name == "p":
+                        if sibling.attrs["class"] in [
+                            ['\\"c-list-info__value'],
+                            '\\"c-list-info__value',
+                        ]:
                             if not amount:
-                                data['lastDividende']['amount'] = unicode_escape(sibling.get_text()).strip()
+                                data["lastDividende"]["amount"] = unicode_escape(
+                                    sibling.get_text()
+                                ).strip()
                                 amount = True
                                 continue
                             try:
-                                data['lastDividende']['date'] = datetime.strptime(unicode_escape(sibling.get_text()).strip(), '%d.%m.%y')
+                                data["lastDividende"]["date"] = datetime.strptime(
+                                    unicode_escape(sibling.get_text()).strip(),
+                                    "%d.%m.%y",
+                                )
 
                             except ValueError as e:
-                                data['lastDividende']['date'] = unicode_escape(sibling.get_text()).strip()
-                            
-        data = {k:(v.strip() if isinstance(v, str) else v) for k,v in data.items()}
+                                data["lastDividende"]["date"] = unicode_escape(
+                                    sibling.get_text()
+                                ).strip()
+
+        data = {k: (v.strip() if isinstance(v, str) else v) for k, v in data.items()}
         return data
     except StopIteration as e:
-        raise ValueError(f'{asset}: No asset found. Try with another name or the ISIN of your asset.')
+        raise ValueError(
+            f"{asset}: No asset found. Try with another name or the ISIN of your asset."
+        )
 
 
-
-def get_historical_data(bourso_ticker:str)-> pd.DataFrame: 
-    req = requests.get(f'https://www.boursorama.com/bourse/action/graph/ws/GetTicksEOD?symbol={bourso_ticker}&length=7300&period=0')
-    df = pd.DataFrame(req.json()['d']['QuoteTab'])
+def get_historical_data(bourso_ticker: str) -> pd.DataFrame:
+    req = requests.get(
+        f"https://www.boursorama.com/bourse/action/graph/ws/GetTicksEOD?symbol={bourso_ticker}&length=7300&period=0"
+    )
+    df = pd.DataFrame(req.json()["d"]["QuoteTab"])
     # convert to datetime object
-    df['date'] = pd.to_datetime(df['d'], unit='D').dt.date
+    df["date"] = pd.to_datetime(df["d"], unit="D").dt.date
     # ensure to get all the dates since inception. to avoid missing values in charts
-    start_date = df['date'].min() 
-    all_dates = {'date': [start_date + timedelta(days=x) for x in range((TODAY-start_date).days +1)]}
+    start_date = df["date"].min()
+    all_dates = {
+        "date": [
+            start_date + timedelta(days=x) for x in range((TODAY - start_date).days + 1)
+        ]
+    }
     date_df = pd.DataFrame.from_dict(all_dates)
-    date_df['date'] = pd.to_datetime(date_df['date']).dt.date
+    date_df["date"] = pd.to_datetime(date_df["date"]).dt.date
     # merge the two dateframes
-    df = pd.merge(date_df, df, how='left', on='date')
+    df = pd.merge(date_df, df, how="left", on="date")
     # forward fill missing values
     df = df.ffill()
     return df
- 
 #+end_src
 
 ** Main :ignore:
@@ -309,33 +386,40 @@ if __name__ == '__main__':
     air_liquide = ['air liquide', 'FR0000120073']
     lvmh = ['mc', 'lvmh', 'FR0000121014']
     items = {Asset.from_boursorama(get_current_asset_data(asset)) for asset in air_liquide+lvmh}
-    ic(items, len(items))
+
 
 
 #+end_src
 * Tests :ignore:
+** Tests scrapping
 #+begin_src python :tangle tests/tests_scraping.py :results output
 import os
 import sys
 import time
 import unittest
-# sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-
-from financial_reports.src.data_extraction import Asset, get_current_asset_data
+import pandas as pd
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+from src.portfolio import Portfolio
+from src.data_extraction import Asset, get_current_asset_data
+from icecream import ic
+
+'''
+# Scrapping
 class TestAsset(unittest.TestCase):
     def test_stock(self):
         """Stock: air liquide"""
-        for search in ['air liquide', 'AI', 'FR0000120073']:
+        for search in ["air liquide", "AI", "FR0000120073"]:
             with self.subTest(i=search):
                 AirLiquide = Asset.from_boursorama(get_current_asset_data(search))
-                self.assertEqual(AirLiquide.asset, 'stock')
-                self.assertEqual(AirLiquide.isin,'FR0000120073')
-                self.assertEqual(AirLiquide.currency,'EUR')
-                self.assertEqual(AirLiquide.name,'AIR LIQUIDE')
-                self.assertEqual(AirLiquide.symbol, '1rPAI')
-                self.assertEqual(AirLiquide.url, 'https://www.boursorama.com/cours/1rPAI/')
+                self.assertEqual(AirLiquide.asset, "stock")
+                self.assertEqual(AirLiquide.isin, "FR0000120073")
+                self.assertEqual(AirLiquide.currency, "EUR")
+                self.assertEqual(AirLiquide.name, "AIR LIQUIDE")
+                self.assertEqual(AirLiquide.symbol, "1rPAI")
+                self.assertEqual(
+                    AirLiquide.url, "https://www.boursorama.com/cours/1rPAI/"
+                )
                 self.assertGreaterEqual(AirLiquide.latest, 0)
                 self.assertIsNone(AirLiquide.referenceIndex)
                 self.assertIsNone(AirLiquide.morningstarCategory)
@@ -343,44 +427,84 @@ class TestAsset(unittest.TestCase):
 
     def test_tracker(self):
         """Tracker: cw8"""
-        for search in ['LU1681043599', 'CW8']:
+        for search in ["LU1681043599", "CW8"]:
             with self.subTest(i=search):
                 cw8 = Asset.from_boursorama(get_current_asset_data(search))
-                self.assertEqual(cw8.asset, 'trackers')
-                self.assertEqual(cw8.isin,'LU1681043599')
-                self.assertEqual(cw8.currency,'EUR')
-                self.assertEqual(cw8.name,'AMUNDI MSCI WORLD UCITS ETF - EUR')
-                self.assertEqual(cw8.symbol, '1rTCW8')
-                self.assertEqual(cw8.url, 'https://www.boursorama.com/bourse/trackers/cours/1rTCW8/')
+                self.assertEqual(cw8.asset, "trackers")
+                self.assertEqual(cw8.isin, "LU1681043599")
+                self.assertEqual(cw8.currency, "EUR")
+                self.assertEqual(cw8.name, "AMUNDI MSCI WORLD UCITS ETF - EUR")
+                self.assertEqual(cw8.symbol, "1rTCW8")
+                self.assertEqual(
+                    cw8.url, "https://www.boursorama.com/bourse/trackers/cours/1rTCW8/"
+                )
                 self.assertGreaterEqual(cw8.latest, 0)
-                self.assertEqual(cw8.referenceIndex, 'MSCI World')
-                self.assertEqual(cw8.morningstarCategory, 'Actions International Gdes Cap. Mixte')
+                self.assertEqual(cw8.referenceIndex, "MSCI World")
+                self.assertEqual(
+                    cw8.morningstarCategory, "Actions International Gdes Cap. Mixte"
+                )
             time.sleep(1)
 
     def test_opcvm(self):
         """OPCVM: Réserve Ecureuil C"""
-        for search in ['FR0010177378']:
+        for search in ["FR0010177378"]:
             with self.subTest(i=search):
                 ecureuil = Asset.from_boursorama(get_current_asset_data(search))
-                self.assertEqual(ecureuil.asset, 'opcvm')
-                self.assertEqual(ecureuil.isin, 'FR0010177378')
-                self.assertEqual(ecureuil.currency, 'EUR')
-                self.assertEqual(ecureuil.name, 'Réserve Ecureuil C')
-                self.assertEqual(ecureuil.symbol, 'MP-184677')
-                self.assertEqual(ecureuil.url,'https://www.boursorama.com/bourse/opcvm/cours/MP-184677/' )
+                self.assertEqual(ecureuil.asset, "opcvm")
+                self.assertEqual(ecureuil.isin, "FR0010177378")
+                self.assertEqual(ecureuil.currency, "EUR")
+                self.assertEqual(ecureuil.name, "Réserve Ecureuil C")
+                self.assertEqual(ecureuil.symbol, "MP-184677")
+                self.assertEqual(
+                    ecureuil.url,
+                    "https://www.boursorama.com/bourse/opcvm/cours/MP-184677/",
+                )
                 self.assertGreaterEqual(ecureuil.latest, 0)
-                self.assertEqual(ecureuil.morningstarCategory, 'Swap EONIA PEA')
+                self.assertEqual(ecureuil.morningstarCategory, "Swap EONIA PEA")
                 self.assertIsNone(ecureuil.referenceIndex)
             time.sleep(1)
+'''
+
+
+class TestPortfolio(unittest.TestCase):
+    def test_non_empty_portfolio(self):
+        non_empty_ptf = Portfolio("unit_tests_ptf")
+
+        self.assertEqual(len(non_empty_ptf.operations_df), 16)
+        self.assertEqual(len(non_empty_ptf.dict_of_assets), 3)
+
+        total_dividends = pd.DataFrame(
+            {
+                "isin": ["FR0011869353", "FR0000120073", "FR0010177378"],
+                "asset": ["trackers", "stock", "opcvm"],
+                "quantity": [200.0, 65.0, 67.0],
+            },
+            index=range(3),
+        )
+        self.assertEqual(
+            non_empty_ptf.assets_summary.loc[:, ["isin", "asset", "quantity"]].equals(
+                total_dividends
+            ),
+            True,
+        )
+        ic(non_empty_ptf.asset_values)
+        self.assertEqual(non_empty_ptf.portfolio_summary.at[0,'Lines number'], 3)
+        self.assertEqual(round(non_empty_ptf.portfolio_summary.at[0,'Total invested amount'], 2), 24578.51)
 
         
-
-if __name__ == '__main__':
+    def test_empty_ptf(self):
+        pass
+if __name__ == "__main__":
     unittest.main()
+#+end_src
+**  Tests portfolio :ignore:
+#+begin_src python
+import os
+import sys
+import time
+import unittest
 
 #+end_src
-
-#+RESULTS:
 * Portfolio class
 :properties:
 :header-args:python: :tangle src/portfolio.py
@@ -390,19 +514,23 @@ if __name__ == '__main__':
 from datetime import date
 from math import floor
 from pathlib import Path
-from pyxirr import xirr
+from typing import Union
+
 import duckdb
 import pandas as pd
 import srsly
 from attrs import define, field
-from src.data_extraction import (DATE_FORMAT,
-                                 TODAY,
-                                 map_period_to_filter,
-                                 Asset,
-                                 compute_perf,
-                                 get_current_asset_data)
 from icecream import ic
-from typing import Union
+from pyxirr import xirr
+from src.data_extraction import (
+    DATE_FORMAT,
+    TODAY,
+    Asset,
+    compute_perf,
+    get_current_asset_data,
+    map_period_to_filter,
+)
+
 
 @define
 class Portfolio:
@@ -417,19 +545,24 @@ class Portfolio:
 
     def __attrs_post_init__(self):
         self.jsonl_ptf_path = f"data/jsonl/{self.name}.jsonl"
-        self.csv_ptf_path = f"data/db/{self.name}.csv"
-        self.dict_of_assets = ({a['isin']: Asset.from_boursorama(
-            get_current_asset_data(a['url'])
+        self.csv_ptf_path = f"data/operations/{self.name}.csv"
+        self.dict_of_assets = (
+            {
+                a["isin"]: Asset.from_boursorama(get_current_asset_data(a["url"]))
+                for a in srsly.read_jsonl(self.jsonl_ptf_path)
+            }
+            if Path(self.jsonl_ptf_path).is_file()
+            else {}
         )
-                               for a in srsly.read_jsonl(self.jsonl_ptf_path)}
-                               if Path(self.jsonl_ptf_path).is_file() else {})
         self.operations_df = self.load_operations()
         # duckdb cannot request directly on class attribute
-        distinct_isins = self.operations_df['isin'].unique()
+        distinct_isins = self.operations_df["isin"].unique()
         self.dict_of_assets.update(
-            {isin: Asset.from_boursorama(get_current_asset_data(isin))
-             for isin in distinct_isins
-             })
+            {
+                isin: Asset.from_boursorama(get_current_asset_data(isin))
+                for isin in distinct_isins
+            }
+        )
 
     def load_operations(self) -> pd.DataFrame:
         """Initialize or read a csv file to get a
@@ -438,30 +571,45 @@ class Portfolio:
 
         if not db_exists:
 
-            operations = pd.DataFrame({column_name: []
-                                      for column_name in ['name',
-                                                          'isin',
-                                                          'date',
-                                                          'operation',
-                                                          'quantity',
-                                                          'value',
-                                                          'fees']})
+            operations = pd.DataFrame(
+                {
+                    column_name: []
+                    for column_name in [
+                        "name",
+                        "isin",
+                        "date",
+                        "operation",
+                        "quantity",
+                        "value",
+                        "fees",
+                    ]
+                }
+            )
 
-            operations = pd.DataFrame({column_name: []
-                                      for column_name in ['name', 'isin',
-                                                          'date', 'operation',
-                                                          'quantity', 'value',
-                                                          'fees']})
+            operations = pd.DataFrame(
+                {
+                    column_name: []
+                    for column_name in [
+                        "name",
+                        "isin",
+                        "date",
+                        "operation",
+                        "quantity",
+                        "value",
+                        "fees",
+                    ]
+                }
+            )
         else:
             operations = pd.read_csv(self.csv_ptf_path)
-            operations['date'] = pd.to_datetime(operations['date']).dt.strftime(DATE_FORMAT)
-            ic(operations.info())
+            operations["date"] = pd.to_datetime(operations["date"]).dt.strftime(
+                DATE_FORMAT
+            )
             operations = duckdb.sql(
-                '''
+                """
                 select row_number() over(order by date, isin, name) as id,
-                ,* from operations ORDER BY id, date, name, isin DESC '''
+                ,* from operations ORDER BY id, date, name, isin DESC """
             ).df()
-        ic('loaded')
         return operations
 
     @property
@@ -470,45 +618,78 @@ class Portfolio:
         if self._assets_summary is None:
             df = self.operations_df.copy()
             assets = []
-            for isin in df['isin'].unique():
-                isin_df = duckdb.sql(f"""
+            for isin in df["isin"].unique():
+                isin_df = duckdb.sql(
+                    f"""
                 select * from df where isin = '{isin}'
-                order by date""").df()
-                quantity, total_dividends, isin_df['cumulative_quantity'] = self.get_asset_quantity(isin_df)
-                summary = {'name': self.dict_of_assets[isin].name,
-                           'isin': isin,
-                           'asset': self.dict_of_assets[isin].asset,
-                           'quantity': quantity,
-                           'daily variation': self.dict_of_assets[isin].variation,
-                           'currency': self.dict_of_assets[isin].currency,
-                           'latest': self.dict_of_assets[isin].latest,
-                           'total dividends': total_dividends,
-                           'IRR ytd': self.compute_xirr_pv(isin_df,isin, period='ytd'),
-                           f'IRR {TODAY.year-1}': self.compute_xirr_pv(isin_df,isin,period=f'{TODAY.year-1}'),
-                           'IRR since 1st buy': self.compute_xirr_pv(isin_df, isin),
-                           'Total invested amount': self.compute_xirr_pv(isin_df, isin, invested=True), 
-                           'Perf ytd': compute_perf(self.dict_of_assets[isin].quotations['ytd']),
-                           f'Perf {TODAY.year-1}': compute_perf(self.dict_of_assets[isin].quotations[f'{TODAY.year-1}']),
-                           'Perf 1m': compute_perf(self.dict_of_assets[isin].quotations['1month']),
-                           'Perf 6m': compute_perf(self.dict_of_assets[isin].quotations['6months']),
-                           'Perf 1y': compute_perf(self.dict_of_assets[isin].quotations['1year']),
-                           'Perf 3y': compute_perf(self.dict_of_assets[isin].quotations['3years']),
-                           'Perf 5y': compute_perf(self.dict_of_assets[isin].quotations['5years']),
-                           'operations': isin_df
-                           }
-                summary['valuation'] = summary['quantity']*summary['latest']
-                summary['Capital gain'] = summary['valuation'] - summary['Total invested amount']
-                summary['Capital gain (%)'] = 100*(summary['valuation'] - summary['Total invested amount'])/summary['Total invested amount']
+                order by date"""
+                ).df()
+                quantity, total_dividends, isin_df["cumulative_quantity"] = (
+                    self.get_asset_quantity(isin_df)
+                )
+                summary = {
+                    "name": self.dict_of_assets[isin].name,
+                    "isin": isin,
+                    "asset": self.dict_of_assets[isin].asset,
+                    "quantity": quantity,
+                    "daily variation": self.dict_of_assets[isin].variation,
+                    "currency": self.dict_of_assets[isin].currency,
+                    "latest": self.dict_of_assets[isin].latest,
+                    "total dividends": total_dividends,
+                    "IRR ytd": self.compute_xirr_pv(isin_df, isin, period="ytd"),
+                    f"IRR {TODAY.year-1}": self.compute_xirr_pv(
+                        isin_df, isin, period=f"{TODAY.year-1}"
+                    ),
+                    "IRR since 1st buy": self.compute_xirr_pv(isin_df, isin),
+                    "Total invested amount": self.compute_xirr_pv(
+                        isin_df, isin, invested=True
+                    ),
+                    "Perf ytd": compute_perf(
+                        self.dict_of_assets[isin].quotations["ytd"]
+                    ),
+                    f"Perf {TODAY.year-1}": compute_perf(
+                        self.dict_of_assets[isin].quotations[f"{TODAY.year-1}"]
+                    ),
+                    "Perf 1m": compute_perf(
+                        self.dict_of_assets[isin].quotations["1month"]
+                    ),
+                    "Perf 6m": compute_perf(
+                        self.dict_of_assets[isin].quotations["6months"]
+                    ),
+                    "Perf 1y": compute_perf(
+                        self.dict_of_assets[isin].quotations["1year"]
+                    ),
+                    "Perf 3y": compute_perf(
+                        self.dict_of_assets[isin].quotations["3years"]
+                    ),
+                    "Perf 5y": compute_perf(
+                        self.dict_of_assets[isin].quotations["5years"]
+                    ),
+                    "operations": isin_df,
+                }
+                summary["valuation"] = summary["quantity"] * summary["latest"]
+                summary["Capital gain"] = (
+                    summary["valuation"] - summary["Total invested amount"]
+                )
+                summary["Capital gain (%)"] = (
+                    100
+                    ,* (summary["valuation"] - summary["Total invested amount"])
+                    / summary["Total invested amount"]
+                )
 
                 assets.append(summary)
 
             self._assets_summary = pd.DataFrame(assets)
-            self._assets_summary['proportion (%)'] = round(
-                100*self._assets_summary['valuation']/
-                self._assets_summary['valuation'].sum(),
-                2)
+            self._assets_summary["proportion (%)"] = round(
+                100
+                ,* self._assets_summary["valuation"]
+                / self._assets_summary["valuation"].sum(),
+                2,
+            )
             # Keep only assets we currently own
-            self._assets_summary = self._assets_summary.loc[self._assets_summary['valuation']>0]
+            self._assets_summary = self._assets_summary.loc[
+                self._assets_summary["valuation"] > 0
+            ]
             # Reorder columns
             cols = list(self._assets_summary.columns)
             cols = cols[23:] + cols[0:12] + cols[20:23] + cols[12:20]
@@ -520,36 +701,40 @@ class Portfolio:
         quantity = 0
         total_dividends = 0
         tracking = []
-        for op in df.itertuples(index=False, name='Row'):
+        for op in df.itertuples(index=False, name="Row"):
             if op.date > str(limit_day):
                 break
-            elif op.operation == 'Buy':
+            elif op.operation == "Buy":
                 quantity += op.quantity
-            elif op.operation == 'Sell':
+            elif op.operation == "Sell":
                 quantity -= op.quantity
-            elif op.operation == 'Split':
-                quantity = floor(op.value*quantity)
-            elif op.operation == 'Dividend':
-                total_dividends += quantity*op.value
+            elif op.operation == "Split":
+                quantity = floor(op.value * quantity)
+            elif op.operation == "Dividend":
+                total_dividends += quantity * op.value
             tracking.append(quantity)
         return quantity, total_dividends, tracking
 
-    def compute_xirr_pv(self, df: pd.DataFrame, isin: Union[str, None] = None,
-                        period='inception', invested=False):
-        try:
-            if isin:
-                quotations_df = self.dict_of_assets[isin].quotations[period]
-                # add Initial value, last value
-                cashflows_df = duckdb.sql(f"""
+    def get_cashflow_df(
+        self,
+        operations: pd.DataFrame,
+        quotations: pd.DataFrame,
+        period: str = "inception",
+        isin: Union[str, None] = None,
+    ) -> pd.DataFrame:
+        if isin:
+            ic("solo", quotations)
+            cashflows_df = duckdb.sql(
+                f"""
                 with first_last_quotations as (
                 select * from (select
                 date,
                 c as value,
                 row_number() over(order by date) as rn,
                 count(*) over() as total_count
-                from quotations_df
+                from quotations
                 order by date)
-                full join df
+                full join operations
                 using (date, value)
                 where rn = 1 or rn = total_count or rn is null
                 order by date),
@@ -561,7 +746,7 @@ class Portfolio:
                 from first_last_quotations flq
 
                 order by date)
-                
+
                 select date, operation, quantity_ as quantity, value,
                 (CASE
                 WHEN operation = 'Buy' THEN -quantity_*value
@@ -575,12 +760,13 @@ class Portfolio:
                 from lag_df
                 {map_period_to_filter.get(period, '')}
 
-                """).df()
-                
-            else:
-                quotations_df = self.asset_values.copy()
-                cashflows_df = duckdb.sql(
-                    f'''
+                """
+            ).df()
+        else:
+            # Whole portfolio
+            ic("full", quotations)
+            cashflows_df = duckdb.sql(
+                f"""
                     with first_last_quotations as (
                     select date,
                     (case when rn = 1 then -v
@@ -590,7 +776,7 @@ class Portfolio:
                     sum(value) as v,
                     row_number() over(order by date) as rn,
                     count(*) over() as total_count
-                    from quotations_df
+                    from quotations
                     {map_period_to_filter.get(period, '')}
                     group by date)
                     where rn = 1 or rn = total_count or rn is null
@@ -602,7 +788,7 @@ class Portfolio:
                     WHEN operation = 'Sell' THEN quantity*value
                     WHEN operation = 'Dividend' THEN cumulative_quantity * value
                     END
-                    ) as cashflow from df
+                    ) as cashflow from operations
                     where cashflow is not null)
 
                     select date, cashflow from cashflows
@@ -610,43 +796,70 @@ class Portfolio:
                     using (date, cashflow)
                     {map_period_to_filter.get(period, '')}
                     order by date
-                    '''
-                ).df()
+                    """
+            ).df()
+        return cashflows_df
+
+    def compute_xirr_pv(
+        self,
+        df: pd.DataFrame,
+        isin: Union[str, None] = None,
+        period="inception",
+        invested=False,
+    ):
+        try:
+            if isin:
+                cashflows_df = self.get_cashflow_df(
+                    df, self.dict_of_assets[isin].quotations[period], period, isin
+                )
+                # add Initial value, last value
+
+            else:
+                cashflows_df = self.get_cashflow_df(df, self.asset_values, period, isin)
+            ic(cashflows_df)
             if invested:
-                invested_amount = round(-(cashflows_df['cashflow'].iloc[:-1].sum()),2)
-                ic(invested_amount)
+                invested_amount = round(-(cashflows_df["cashflow"].iloc[:-1].sum()), 2)
+
                 return invested_amount
             else:
-                if period == 'ytd':
-                    cashflows_df.at[len(cashflows_df.index) - 1, 'date'] = date(year=TODAY.year, month=12, day=31)
-                ic(cashflows_df)
-                
-                irr = xirr(cashflows_df['date'], cashflows_df['cashflow'])*100
+                if period == "ytd":
+                    cashflows_df.at[len(cashflows_df.index) - 1, "date"] = date(
+                        year=TODAY.year, month=12, day=31
+                    )
+
+                irr = xirr(cashflows_df["date"], cashflows_df["cashflow"]) * 100
                 return irr
         except Exception as e:
-            ic(e)
-            return 'Irrelevant'
+            print(e)
+            return "Irrelevant"
 
     @property
     def asset_values(self):
         """"""
         if self._asset_values is None:
-            isins = self.operations_df['isin'].unique()
+            isins = self.operations_df["isin"].unique()
             all_quotations_df = []
             for isin in isins:
-                isin_df = self.dict_of_assets[isin].quotations['inception'].copy()
-                all_quotations_df.append(duckdb.sql(
-                f""" select *, '{self.dict_of_assets[isin].name}' as name from isin_df
-                """).df())
-                
+                isin_df = self.dict_of_assets[isin].quotations["inception"].copy()
+                all_quotations_df.append(
+                    duckdb.sql(
+                        f""" select *, '{self.dict_of_assets[isin].name}' as name from isin_df
+                """
+                    ).df()
+                )
+
             all_quotations_df = pd.concat(all_quotations_df)
             # can't join on operation_df, because we need cumulative quantities.
-            cum_quantities_df = pd.concat([df for df in self.assets_summary['operations']])
-            all_quotations_df['date']=pd.to_datetime(all_quotations_df['date']).dt.date
-            
+            cum_quantities_df = pd.concat(
+                [df for df in self.assets_summary["operations"]]
+            )
+            all_quotations_df["date"] = pd.to_datetime(
+                all_quotations_df["date"]
+            ).dt.date
+
             # Fill null value with last non null value for each asset
             self._asset_values = duckdb.sql(
-                '''
+                """
                 with grouped as (
                 select date, name, c,
                 cumulative_quantity,
@@ -663,31 +876,41 @@ class Portfolio:
                 order by date)*c as value
                 from grouped
                 order by date)
-                '''
+                """
             ).df()
-            self._asset_values['date'] = pd.to_datetime(self._asset_values['date']).dt.date
+            self._asset_values["date"] = pd.to_datetime(
+                self._asset_values["date"]
+            ).dt.date
         return self._asset_values
 
     @property
     def portfolio_summary(self):
         """"""
         if self._portfolio_summary is None:
-            cum_quantities_df = pd.concat([df for df in self.assets_summary['operations']])
+            cum_quantities_df = pd.concat(
+                [df for df in self.assets_summary["operations"]]
+            )
             ptf_summary = {
-                'valuation': self.assets_summary['valuation'].sum(),
-                'total earned dividends': self.assets_summary['total dividends'].sum(),
-                'Capital gain': self.assets_summary['Capital gain'].sum(),
-                'Total invested amount': self.assets_summary['Total invested amount'].sum(),
-                'IRR ytd': self.compute_xirr_pv(cum_quantities_df, period='ytd'),
-                f'IRR{TODAY.year-1}': self.compute_xirr_pv(cum_quantities_df, period=f'{TODAY.year-1}'),
-                'IRR since 1st buy': self.compute_xirr_pv(cum_quantities_df),
+                "Lines number": len(self.assets_summary),
+                "valuation": self.assets_summary["valuation"].sum(),
+                "total earned dividends": self.assets_summary["total dividends"].sum(),
+                "Capital gain": self.assets_summary["Capital gain"].sum(),
+                "Total invested amount": self.assets_summary[
+                    "Total invested amount"
+                ].sum(),
+                "IRR ytd": self.compute_xirr_pv(cum_quantities_df, period="ytd"),
+                f"IRR {TODAY.year-1}": self.compute_xirr_pv(
+                    cum_quantities_df, period=f"{TODAY.year-1}"
+                ),
+                "IRR since 1st buy": self.compute_xirr_pv(cum_quantities_df),
             }
-            ptf_summary['Capital gain (%)'] = (100* (ptf_summary['valuation']
-                                                    - ptf_summary['Total invested amount'])/
-                                               ptf_summary['Total invested amount'])
+            ptf_summary["Capital gain (%)"] = (
+                100
+                ,* (ptf_summary["valuation"] - ptf_summary["Total invested amount"])
+                / ptf_summary["Total invested amount"]
+            )
             self._portfolio_summary = pd.DataFrame([ptf_summary])
         return self._portfolio_summary
-    
 #+end_src
 * Streamlit
 :properties:
@@ -713,42 +936,44 @@ import streamlit as st
 from attrs import asdict, field
 from attrs.filters import exclude
 from icecream import ic
+
 # sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from src.data_extraction import (DATE_FORMAT, Asset,
-                                                   compute_perf, date_to_str,
-                                                   get_current_asset_data,
-                                                   get_historical_data)
+from src.data_extraction import (
+    DATE_FORMAT,
+    Asset,
+    compute_perf,
+    date_to_str,
+    get_current_asset_data,
+    get_historical_data,
+)
 from src.portfolio import Portfolio
 
 st.set_page_config(
-    page_title="Asset visualizer",
-    layout="wide",
-    initial_sidebar_state="expanded")
-st.title('Asset visualizer')
+    page_title="Asset visualizer", layout="wide", initial_sidebar_state="expanded"
+)
+st.title("Asset visualizer")
 
 # Create data/json, data/parquet if they do not exist
 for save_path in ["data/jsonl", "data/db"]:
     Path(save_path).mkdir(parents=True, exist_ok=True)
 
-ptf_name = st.text_input('Name of the portfolio (This name will be used the save and load your portfolio.)',
-                         st.session_state.get('ptf_name', 'MyPortfolio'),
-                         placeholder='MyPortfolio',
-                         key='ptf_name')
-
+ptf_name = st.text_input(
+    "Name of the portfolio (This name will be used the save and load your portfolio.)",
+    st.session_state.get("ptf_name", "MyPortfolio"),
+    placeholder="MyPortfolio",
+    key="ptf_name",
+)
 
 
 portfolio = Portfolio(ptf_name)
-st.session_state['name_isin'] = {(a.name, a.isin) for a in portfolio.dict_of_assets.values()}
-
-
-
+st.session_state["name_isin"] = {
+    (a.name, a.isin) for a in portfolio.dict_of_assets.values()
+}
 #+end_src
 ** Functions :ignore:
 #+begin_src python
-
-
-def plot_piechart(data:Iterable, cat_name:str='name', value:str='value'):
+def plot_piechart(data: Iterable, cat_name: str = "name", value: str = "value"):
     """Extract varible names and their values.
     Returns a pie chart."""
     categories = []
@@ -759,19 +984,19 @@ def plot_piechart(data:Iterable, cat_name:str='name', value:str='value'):
     fig = go.Figure(data=[go.Pie(labels=categories, values=values)])
     return fig
 
-def ptf_piechart(iter_of_dicts:Iterable):
+
+def ptf_piechart(iter_of_dicts: Iterable):
     d = {}
-    for i,dict_ in enumerate(iter_of_dicts):
-        d[dict_['name']] =  d.get(dict_['name'], 0) + dict_['value']
+    for i, dict_ in enumerate(iter_of_dicts):
+        d[dict_["name"]] = d.get(dict_["name"], 0) + dict_["value"]
     [*categories], [*values] = list(zip(*d.items()))
     values = np.array(values)
-    fig = go.Figure(data=[go.Pie(labels=categories, values=values/(i+1))])
+    fig = go.Figure(data=[go.Pie(labels=categories, values=values / (i + 1))])
     return fig
 
 
-
-def plot_historical_chart(df:pd.DataFrame, name:str, isin:str):
-    fig = px.line(df, x="date", y="c", title=f'{name} - {isin}')
+def plot_historical_chart(df: pd.DataFrame, name: str, isin: str):
+    fig = px.line(df, x="date", y="c", title=f"{name} - {isin}")
     return fig
 #+end_src
 ** Sidebar :ignore:
@@ -781,49 +1006,60 @@ with st.form("sidebar"):
         asset = st.text_input(
             "Enter an ISIN. You may also enter a name or a ticker, but you might get some errors."
             "\nPrefilled with MC, the ticker of LVMH stock.",
-            value = st.session_state.get('last_asset','MC'),
-            placeholder = "ISIN, Ticker.",
-            key='last_asset'
+            value=st.session_state.get("last_asset", "MC"),
+            placeholder="ISIN, Ticker.",
+            key="last_asset",
         )
-        adding_to_portfolio = st.checkbox('Add to your portfolio', True)
+        adding_to_portfolio = st.checkbox("Add to your portfolio", True)
         submitted = st.form_submit_button("Submit")
         if submitted:
             st.write(f"Asset: {asset}")
             asset_obj = Asset.from_boursorama(get_current_asset_data(asset))
             st.header(f"Name: {asset_obj.name}")
-            asset_as_dict = asdict(asset_obj, filter= exclude('_quotations'))
+            asset_as_dict = asdict(asset_obj, filter=exclude("_quotations"))
             asset_as_dict["tradeDate"] = date_to_str(asset_as_dict["tradeDate"])
             if len(asset_as_dict["lastDividende"]) > 0:
                 asset_as_dict["lastDividende"]["date"] = date_to_str(
                     asset_as_dict["lastDividende"]["date"]
-                        )
+                )
             st.dataframe(
                 asset_as_dict,
                 column_config={0: "property", 1: "value"},
                 use_container_width=True,
             )
 
-            asset_comp, historic_chart = st.tabs(['Asset composition', 'Historical prices'])
+            asset_comp, historic_chart = st.tabs(
+                ["Asset composition", "Historical prices"]
+            )
             with asset_comp:
                 st.subheader(f"Asset composition")
                 asset_comp_chart = plot_piechart(
                     asset_as_dict["assetsComposition"], "name", "value"
-                    )
+                )
                 st.plotly_chart(asset_comp_chart, use_container_width=True)
 
             with historic_chart:
                 st.subheader(f"Historical prices {asset_as_dict['currency']}")
-                perf_dict = pd.DataFrame([{key:compute_perf(asset_obj.quotations[key])
-                                           for key in asset_obj.quotations }]).T
-                perf_dict.columns = ['Performance']
+                perf_dict = pd.DataFrame(
+                    [
+                        {
+                            key: compute_perf(asset_obj.quotations[key])
+                            for key in asset_obj.quotations
+                        }
+                    ]
+                ).T
+                perf_dict.columns = ["Performance"]
                 st.dataframe(perf_dict)
-                st.write('You can view the chart in full screen and zoom in the period by selecting the wanted period.')
+                st.write(
+                    "You can view the chart in full screen and zoom in the period by selecting the wanted period."
+                )
                 st.plotly_chart(
-                    plot_historical_chart(asset_obj.quotations['inception'], asset_as_dict["name"], asset_as_dict["isin"])
+                    plot_historical_chart(
+                        asset_obj.quotations["inception"],
+                        asset_as_dict["name"],
+                        asset_as_dict["isin"],
                     )
-
-            
-
+                )
 #+end_src
 ** Body
 #+begin_src python
@@ -836,13 +1072,17 @@ operations_col, details_col= st.tabs(["Portfolio Operations", "Portfolio details
 ## Portfolio tab
 with details_col:
     if submitted and adding_to_portfolio:
-        portfolio.dict_of_assets[asset_obj.isin]= asset_obj
-        st.session_state['name_isin'].add((asset_obj.isin, asset_obj.name))
-        srsly.write_jsonl(portfolio.jsonl_ptf_path,
-                          [asdict(a, filter=exclude('_quotations'))
-                           for a in portfolio.dict_of_assets.values()])
+        portfolio.dict_of_assets[asset_obj.isin] = asset_obj
+        st.session_state["name_isin"].add((asset_obj.isin, asset_obj.name))
+        srsly.write_jsonl(
+            portfolio.jsonl_ptf_path,
+            [
+                asdict(a, filter=exclude("_quotations"))
+                for a in portfolio.dict_of_assets.values()
+            ],
+        )
 
-    with st.expander('Followed assets'):
+    with st.expander("Followed assets"):
         ptf_df = pd.DataFrame(
             [
                 {
@@ -870,16 +1110,17 @@ with details_col:
                         "In portfolio?",
                         help="Select your current assets.",
                         default=True,
-                        
                     ),
-                    '_quotations':None
+                    "_quotations": None,
                 },
                 disabled=[column for column in ptf_df.columns if column != "in_ptf"],
                 hide_index=True,
             )
             update_assets = st.form_submit_button("Update assets")
             if update_assets:
-                keep_isin = duckdb.sql("""SELECT isin from ptf_df where in_ptf='True'""").fetchall()
+                keep_isin = duckdb.sql(
+                    """SELECT isin from ptf_df where in_ptf='True'"""
+                ).fetchall()
                 srsly.write_jsonl(
                     portfolio.jsonl_ptf_path,
                     [
@@ -889,27 +1130,33 @@ with details_col:
                     ],
                 )
                 st.rerun()
-                
-    
-    if len(portfolio.operations_df['isin']) > 0:
-        st.subheader('Portfolio lines')
-        st.dataframe(portfolio.assets_summary.round(2), hide_index=True,
-                     column_config={'operations':None},
-                     )
-        st.subheader('Overall stats')
+
+    if len(portfolio.operations_df["isin"]) > 0:
+        st.subheader("Portfolio lines")
+        st.dataframe(
+            portfolio.assets_summary.round(2),
+            hide_index=True,
+            column_config={"operations": None},
+        )
+        st.subheader("Overall stats")
         st.dataframe(portfolio.portfolio_summary.round(2), hide_index=True)
-        filled_area_plot = px.area(portfolio.asset_values, x='date', y='value',
-                               color='name')
-        st.subheader('Historical records')
+        filled_area_plot = px.area(
+            portfolio.asset_values, x="date", y="value", color="name"
+        )
+        st.subheader("Historical records")
         st.plotly_chart(filled_area_plot, use_container_width=True)
 
-        total_assets_comp = [{'name': d['name'], 'value': d['value']*k}
-             for i, (a, k) in enumerate(zip(portfolio.assets_summary['isin'].tolist(),
-                                  portfolio.assets_summary['proportion (%)'].tolist()))
+        total_assets_comp = [
+            {"name": d["name"], "value": d["value"] * k}
+            for i, (a, k) in enumerate(
+                zip(
+                    portfolio.assets_summary["isin"].tolist(),
+                    portfolio.assets_summary["proportion (%)"].tolist(),
+                )
+            )
             for d in portfolio.dict_of_assets[a].assetsComposition
-            ]
-        
-        
+        ]
+        ic(portfolio.assets_summary)
         ptf_asset_comp, ptf_asset_proportion = st.columns(2)
         with ptf_asset_comp:
             st.subheader("Portfolio asset repartition")
@@ -917,129 +1164,154 @@ with details_col:
             st.plotly_chart(ptf_asset_comp_chart, use_container_width=True)
 
         with ptf_asset_proportion:
-            st.subheader('Proportion of each asset in your portfolio')
-            proportion_fig = px.pie(portfolio.assets_summary,
-                                    values='valuation', names='name',
-                                    title='Proportion of each asset in your portfolio')
+            st.subheader("Proportion of each asset in your portfolio")
+            proportion_fig = px.pie(
+                portfolio.assets_summary,
+                values="valuation",
+                names="name",
+                title="Proportion of each asset in your portfolio",
+            )
             st.plotly_chart(proportion_fig, use_container_width=True)
 #+end_src
 
 
 *** Operations tab
 #+begin_src python
-
 with operations_col:
-    st.subheader('Portfolio operations')
+    st.subheader("Portfolio operations")
     st.dataframe(portfolio.operations_df, hide_index=True)
 
-    ic(st.session_state['name_isin'])
     # Operation tabs
-    add_row, del_row = st.tabs(['Add operation', 'Remove operation'])
+    add_row, del_row = st.tabs(["Add operation", "Remove operation"])
     # Add operation
     with add_row:
         with st.empty().container():
             operation_type = st.selectbox(
-                    "Operation type",
-                    ("Buy", "Sell", "Dividend", "Split"),
-                    index=None,
-                    placeholder="Select your operation type.",
-                    key='operation_type_add'
-                )
-            operation_date = st.date_input("Date operation", "today",
-                                           format = "YYYY-MM-DD", key='operation_date_buy')
-            operation_on_asset = st.selectbox("The asset to perform the operation.",
-                                          st.session_state['name_isin'],
-                                          index=None,
-                                          placeholder = "Select the asset.",
-                                          key='asset_operation_add')
+                "Operation type",
+                ("Buy", "Sell", "Dividend", "Split"),
+                index=None,
+                placeholder="Select your operation type.",
+                key="operation_type_add",
+            )
+            operation_date = st.date_input(
+                "Date operation", "today", format="YYYY-MM-DD", key="operation_date_buy"
+            )
+            operation_on_asset = st.selectbox(
+                "The asset to perform the operation.",
+                st.session_state["name_isin"],
+                index=None,
+                placeholder="Select the asset.",
+                key="asset_operation_add",
+            )
             argA, argB, taxes_fees = None, None, 0
-            if st.session_state.get('operation_type_add', None) not in ['Split', 'Interest']:
-                if operation_type in ['Buy', 'Sell']:
-                    taxes_fees= st.number_input("Taxes/Fees", min_value=0.00)
-                    if operation_type == 'Buy':
-                        argB = st.number_input("Quantity",value= 1.0, min_value=0.001)
+            if st.session_state.get("operation_type_add", None) not in [
+                "Split",
+                "Interest",
+            ]:
+                if operation_type in ["Buy", "Sell"]:
+                    taxes_fees = st.number_input("Taxes/Fees", min_value=0.00)
+                    if operation_type == "Buy":
+                        argB = st.number_input("Quantity", value=1.0, min_value=0.001)
                         argA = st.number_input("Price", min_value=0.00)
-                    else: #sell
+                    else:  # sell
                         try:
                             copy_operations_df = portfolio.operations_df.copy()
-                            asset_operations = duckdb.sql(f"""select operation, sum(quantity) as sum_qty
+                            asset_operations = duckdb.sql(
+                                f"""select operation, sum(quantity) as sum_qty
                             from copy_operations_df
                             where name='{st.session_state["asset_operation_add"][0]}'
                             and isin='{st.session_state["asset_operation_add"][1]}'
-                            group by operation""").fetchall()
-                            asset_operations = {op: value for (op, value) in asset_operations}
-                            
-                            argB = st.number_input("Quantity",
-                                                   value=1.0,
-                                                   min_value=0.0,
-                                                   max_value=asset_operations.get('Buy', 0 ) - asset_operations.get('Sell', 0))
+                            group by operation"""
+                            ).fetchall()
+                            asset_operations = {
+                                op: value for (op, value) in asset_operations
+                            }
+
+                            argB = st.number_input(
+                                "Quantity",
+                                value=1.0,
+                                min_value=0.0,
+                                max_value=asset_operations.get("Buy", 0)
+                                - asset_operations.get("Sell", 0),
+                            )
                             argA = st.number_input("Price", min_value=0.00)
-                            
+
                         except Exception as e:
-                            ic(e)
+                            print(e)
                             # Cannot sell assets we do not own.
-                            st.write('You cannot sell assets you do not own.')
+                            st.write("You cannot sell assets you do not own.")
                             # Disable add operation button
-                            st.session_state['invalid_operation'] =1
-                elif operation_type == 'Dividend':
+                            st.session_state["invalid_operation"] = 1
+                elif operation_type == "Dividend":
 
                     argA = st.number_input("Dividend value", min_value=0.01)
-               
-            
-            elif st.session_state.get('operation_type_add', None) =='Split':
-                argA =  st.text_input("Split ratio",
-                                      placeholder = 'Enter the split ratio, e.g. "11:10" or "2:1"'
-                                      )
+
+            elif st.session_state.get("operation_type_add", None) == "Split":
+                argA = st.text_input(
+                    "Split ratio",
+                    placeholder='Enter the split ratio, e.g. "11:10" or "2:1"',
+                )
                 if argA:
                     # Check the ratio is valid
-                    after, before = argA.strip().split(':')
+                    after, before = argA.strip().split(":")
                     if not after.isdecimal() or not before.isdecimal():
-                        raise ValueError("You must enter a valid split ratio,"
-                                             " two integer numbers separated by a colon(:).")
-                    argA = int(after)/int(before)
+                        raise ValueError(
+                            "You must enter a valid split ratio,"
+                            " two integer numbers separated by a colon(:)."
+                        )
+                    argA = int(after) / int(before)
             # Check all arguments are filled to enable add operation button
-            if all([operation_on_asset is not None,operation_type is not None]):
-                st.session_state['invalid_operation'] = 0
-                
+            if all([operation_on_asset is not None, operation_type is not None]):
+                st.session_state["invalid_operation"] = 0
+
             # Append operation to csv
-            if st.button('Add operation', disabled=st.session_state.get('invalid_operation', 1)):
-                ic(st.session_state['invalid_operation'])
-                portfolio.operations_df.loc[
-                    len(portfolio.operations_df.operation)
-                ] = {'name':operation_on_asset[0],
-                     'isin':operation_on_asset[1],
-                     'date':operation_date.isoformat(),
-                     'operation':operation_type,
-                     'quantity':argB,
-                     'value':argA,
-                     'fees': taxes_fees
-                     }
-                portfolio.operations_df.to_csv(portfolio.csv_ptf_path,
-                                  index=False,
-                                  columns=[col for col in portfolio.operations_df.columns
-                                           if not col.startswith('id')])
-                #elif operation_type in ['Dividend', 'Split']:
-                
-                #duckdb.sql(f'COPY operations TO {csv_ptf_path}')
+            if st.button(
+                "Add operation", disabled=st.session_state.get("invalid_operation", 1)
+            ):
+                portfolio.operations_df.loc[len(portfolio.operations_df.operation)] = {
+                    "name": operation_on_asset[0],
+                    "isin": operation_on_asset[1],
+                    "date": operation_date.isoformat(),
+                    "operation": operation_type,
+                    "quantity": argB,
+                    "value": argA,
+                    "fees": taxes_fees,
+                }
+                portfolio.operations_df.to_csv(
+                    portfolio.csv_ptf_path,
+                    index=False,
+                    columns=[
+                        col
+                        for col in portfolio.operations_df.columns
+                        if not col.startswith("id")
+                    ],
+                )
+                # elif operation_type in ['Dividend', 'Split']:
+
+                # duckdb.sql(f'COPY operations TO {csv_ptf_path}')
                 st.rerun()
 
-    # Delete row                
+    # Delete row
     with del_row:
-        with st.form('delete_row'):
+        with st.form("delete_row"):
             try:
-                row_number = st.number_input("Row number", min_value=1, max_value = len(portfolio.operations_df.operation),
-                                            placeholder = 'Row number to remove' )
+                row_number = st.number_input(
+                    "Row number",
+                    min_value=1,
+                    max_value=len(portfolio.operations_df.operation),
+                    placeholder="Row number to remove",
+                )
             except Exception as e:
-                #st.write(e)
-                st.write('Please add an operation before trying to remove one.')
-            delete_row = st.form_submit_button('Delete row')
+                # st.write(e)
+                st.write("Please add an operation before trying to remove one.")
+            delete_row = st.form_submit_button("Delete row")
             if delete_row:
-                 duckdb.sql(f"""
+                duckdb.sql(
+                    f"""
                  WITH row_nb_table AS (
                  select row_number() over(order by date, isin, name) as id,
                  ,* from '{portfolio.csv_ptf_path}'
                  ORDER BY  date, name, isin DESC
-
                  )
                  Select
                  rnt.name,
@@ -1053,9 +1325,11 @@ with operations_col:
                  Left JOIN '{portfolio.csv_ptf_path}'
                  using (isin, date, operation, quantity,value,fees)
                  where rnt.id != {row_number}
-                 """).write_csv(portfolio.csv_ptf_path)
-                 st.rerun()
+                 """
+                ).write_csv(portfolio.csv_ptf_path)
+                st.rerun()
 #+end_src
 
 * Next steps
 - Add a way to configure data for SCPIs
+- Add operations from csv, pdf
