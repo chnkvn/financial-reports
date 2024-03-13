@@ -2,16 +2,18 @@ import os
 import sys
 import time
 import unittest
+
 import pandas as pd
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from src.portfolio import Portfolio
 from src.data_extraction import Asset, get_current_asset_data
-from icecream import ic
+from src.portfolio import Portfolio
 
-'''
+
 # Scrapping
 class TestAsset(unittest.TestCase):
+    """Ensure the scraped data is correct"""
+
     def test_stock(self):
         """Stock: air liquide"""
         for search in ["air liquide", "AI", "FR0000120073"]:
@@ -68,11 +70,13 @@ class TestAsset(unittest.TestCase):
                 self.assertEqual(ecureuil.morningstarCategory, "Swap EONIA PEA")
                 self.assertIsNone(ecureuil.referenceIndex)
             time.sleep(1)
-'''
 
 
 class TestPortfolio(unittest.TestCase):
+    """Test code with empty and non-empty portfolio"""
+
     def test_non_empty_portfolio(self):
+        """Test code with non-empty portfolio"""
         non_empty_ptf = Portfolio("unit_tests_ptf")
 
         self.assertEqual(len(non_empty_ptf.operations_df), 16)
@@ -92,12 +96,34 @@ class TestPortfolio(unittest.TestCase):
             ),
             True,
         )
-        ic(non_empty_ptf.asset_values)
-        self.assertEqual(non_empty_ptf.portfolio_summary.at[0,'Lines number'], 3)
-        self.assertEqual(round(non_empty_ptf.portfolio_summary.at[0,'Total invested amount'], 2), 24578.51)
+        self.assertEqual(non_empty_ptf.portfolio_summary.at[0, "Lines number"], 3)
+        self.assertEqual(
+            round(non_empty_ptf.portfolio_summary.at[0, "Total invested amount"], 2),
+            24578.51,
+        )
+        # Unit test: IRR, asset: Air liquide
+        cashflows_df = pd.read_csv("tests/tests_cashflows.csv")
+        cashflows_df = cashflows_df.iloc[:-1, :].round(2)
+        cum_quantities_df = pd.concat(
+            df for df in non_empty_ptf.assets_summary["operations"]
+        )
+        test_cashflows_df = non_empty_ptf.get_cashflow_df(
+            cum_quantities_df, non_empty_ptf.asset_values, "inception"
+        ).iloc[:-1, :]
+        self.assertEqual(
+            cashflows_df.equals(test_cashflows_df.round(2)),
+            True,
+        )
 
-        
     def test_empty_ptf(self):
-        pass
+        """Test code with empty, non-existant portfolio"""
+        empty_ptf = Portfolio("empty_unit_tests_ptf")
+        self.assertFalse(len(empty_ptf.operations_df) > 0)
+        self.assertFalse(len(empty_ptf.dict_of_assets) > 0)
+        self.assertIsNone(empty_ptf.assets_summary)
+        self.assertIsNone(empty_ptf.portfolio_summary)
+        self.assertIsNone(empty_ptf.asset_values)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,7 @@ import pandas as pd
 import srsly
 from attrs import define, field
 from icecream import ic
-from pyxirr import xirr
+from pyxirr import xirr, xnpv
 from src.data_extraction import (
     DATE_FORMAT,
     TODAY,
@@ -102,7 +102,7 @@ class Portfolio:
     @property
     def assets_summary(self) -> pd.DataFrame:
         """"""
-        if self._assets_summary is None:
+        if self._assets_summary is None and len(self.operations_df) > 0 :
             df = self.operations_df.copy()
             assets = []
             for isin in df["isin"].unique():
@@ -114,6 +114,17 @@ class Portfolio:
                 quantity, total_dividends, isin_df["cumulative_quantity"] = (
                     self.get_asset_quantity(isin_df)
                 )
+
+                cashflows_dict = {
+                    period: self.get_cashflow_df(
+                        isin_df,
+                        self.dict_of_assets[isin].quotations[period],
+                        period,
+                        isin,
+                    )
+                    for period in ["ytd", f"{TODAY.year-1}", "inception"]
+                }
+
                 summary = {
                     "name": self.dict_of_assets[isin].name,
                     "isin": isin,
@@ -123,13 +134,17 @@ class Portfolio:
                     "currency": self.dict_of_assets[isin].currency,
                     "latest": self.dict_of_assets[isin].latest,
                     "total dividends": total_dividends,
-                    "IRR ytd": self.compute_xirr_pv(isin_df, isin, period="ytd"),
-                    f"IRR {TODAY.year-1}": self.compute_xirr_pv(
-                        isin_df, isin, period=f"{TODAY.year-1}"
+                    "IRR ytd": self.compute_xirr_pv(
+                        cashflows_dict["ytd"], period="ytd"
                     ),
-                    "IRR since 1st buy": self.compute_xirr_pv(isin_df, isin),
+                    f"IRR {TODAY.year-1}": self.compute_xirr_pv(
+                        cashflows_dict[f"{TODAY.year-1}"], period=f"{TODAY.year-1}"
+                    ),
+                    "IRR since 1st buy": self.compute_xirr_pv(
+                        cashflows_dict["inception"], period="inception"
+                    ),
                     "Total invested amount": self.compute_xirr_pv(
-                        isin_df, isin, invested=True
+                        cashflows_dict["inception"], period="inception", invested=True
                     ),
                     "Perf ytd": compute_perf(
                         self.dict_of_assets[isin].quotations["ytd"]
@@ -210,7 +225,6 @@ class Portfolio:
         isin: Union[str, None] = None,
     ) -> pd.DataFrame:
         if isin:
-            ic("solo", quotations)
             cashflows_df = duckdb.sql(
                 f"""
                 with first_last_quotations as (
@@ -251,7 +265,6 @@ class Portfolio:
             ).df()
         else:
             # Whole portfolio
-            ic("full", quotations)
             cashflows_df = duckdb.sql(
                 f"""
                     with first_last_quotations as (
@@ -285,45 +298,36 @@ class Portfolio:
                     order by date
                     """
             ).df()
+
         return cashflows_df
 
     def compute_xirr_pv(
         self,
-        df: pd.DataFrame,
-        isin: Union[str, None] = None,
-        period="inception",
-        invested=False,
+        cashflows_df: pd.DataFrame,
+        period: str = "inception",
+        invested: bool = False,
+        test=False,
     ):
         try:
-            if isin:
-                cashflows_df = self.get_cashflow_df(
-                    df, self.dict_of_assets[isin].quotations[period], period, isin
-                )
-                # add Initial value, last value
-
-            else:
-                cashflows_df = self.get_cashflow_df(df, self.asset_values, period, isin)
-            ic(cashflows_df)
             if invested:
                 invested_amount = round(-(cashflows_df["cashflow"].iloc[:-1].sum()), 2)
-
                 return invested_amount
             else:
                 if period == "ytd":
+                    current_year = 2024 if test else TODAY.year
                     cashflows_df.at[len(cashflows_df.index) - 1, "date"] = date(
-                        year=TODAY.year, month=12, day=31
+                        year=current_year, month=12, day=31
                     )
-
-                irr = xirr(cashflows_df["date"], cashflows_df["cashflow"]) * 100
-                return irr
+            irr = xirr(cashflows_df["date"], cashflows_df["cashflow"]) * 100
+            return irr
         except Exception as e:
             print(e)
-            return "Irrelevant"
+            return 0
 
     @property
     def asset_values(self):
         """"""
-        if self._asset_values is None:
+        if self._asset_values is None and len(self.operations_df)>0:
             isins = self.operations_df["isin"].unique()
             all_quotations_df = []
             for isin in isins:
@@ -373,10 +377,18 @@ class Portfolio:
     @property
     def portfolio_summary(self):
         """"""
-        if self._portfolio_summary is None:
+        if self._portfolio_summary is None and len(self.operations_df) > 0:
             cum_quantities_df = pd.concat(
                 [df for df in self.assets_summary["operations"]]
             )
+            cashflows_dict = {
+                period: self.get_cashflow_df(
+                    cum_quantities_df,
+                    self.asset_values,
+                    period,
+                )
+                for period in ["ytd", f"{TODAY.year-1}", "inception"]
+            }
             ptf_summary = {
                 "Lines number": len(self.assets_summary),
                 "valuation": self.assets_summary["valuation"].sum(),
@@ -385,11 +397,13 @@ class Portfolio:
                 "Total invested amount": self.assets_summary[
                     "Total invested amount"
                 ].sum(),
-                "IRR ytd": self.compute_xirr_pv(cum_quantities_df, period="ytd"),
+                "IRR ytd": self.compute_xirr_pv(cashflows_dict["ytd"], period="ytd"),
                 f"IRR {TODAY.year-1}": self.compute_xirr_pv(
-                    cum_quantities_df, period=f"{TODAY.year-1}"
+                    cashflows_dict[f"{TODAY.year-1}"], period=f"{TODAY.year-1}"
                 ),
-                "IRR since 1st buy": self.compute_xirr_pv(cum_quantities_df),
+                "IRR since 1st buy": self.compute_xirr_pv(
+                    cashflows_dict["inception"], period="inception"
+                ),
             }
             ptf_summary["Capital gain (%)"] = (
                 100

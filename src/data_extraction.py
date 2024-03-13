@@ -11,7 +11,6 @@ import streamlit as st
 from attrs import define, field
 from bs4 import BeautifulSoup
 from bs4.element import Tag
-from icecream import ic
 
 DATE_FORMAT = "%Y-%m-%d"
 TODAY = date.today()
@@ -81,6 +80,22 @@ def compute_perf(df: pd.DataFrame):
 
 @define
 class Asset:
+    """Create an instance of Asset object.
+    An asset object has the following attributes:
+    - asset (str): the type of asset e.g. stock
+    - isin (str): the isin code of the asset
+    - symbol (str): a symbol used to get the data using boursorama website
+    - currency (str): the currency of the asset
+    - name (str): the name of the asset
+    - latest (float): the latest quotation price of the asset
+    - variation (float): stock variation since the previous day
+    - tradeDate (str): the last date of trade
+    - url (str): the url used to scrap the asset
+    - referenceIndex (str): the index of reference of the asset
+    - morningstarCategory (str): the morningstar category associated to the asset
+    - lastDividende (dict): a dict containing the date and the value of the last dividende
+    - quotations: the historical quotations of the asset
+    """
     asset: str
     isin: str
     symbol: str
@@ -108,7 +123,6 @@ class Asset:
 
     @classmethod
     def from_boursorama(cls, data: dict):
-
         return cls(
             data["asset"],
             data["isin"],
@@ -146,6 +160,7 @@ class Asset:
 
         return self._quotations
 
+
 def unicode_escape(s: str) -> str:
     """Remove unicode sequences from a string s"""
     return s.encode("utf8").decode("unicode_escape")
@@ -170,6 +185,7 @@ def extract_chart_data(soup: BeautifulSoup, id_: str) -> dict:
             "{" + re.search(r'"amChartData":\[\{"name":.+\]\}', am_chart_data).group()
         )["amChartData"]
     except IndexError as e:
+        print(e)
         return None
 
 
@@ -306,8 +322,8 @@ def get_current_asset_data(asset: str) -> dict:
                                     unicode_escape(sibling.get_text()).strip(),
                                     "%d.%m.%y",
                                 )
-
                             except ValueError as e:
+                                print(e)
                                 data["lastDividende"]["date"] = unicode_escape(
                                     sibling.get_text()
                                 ).strip()
@@ -315,12 +331,14 @@ def get_current_asset_data(asset: str) -> dict:
         data = {k: (v.strip() if isinstance(v, str) else v) for k, v in data.items()}
         return data
     except StopIteration as e:
+        print(e)
         raise ValueError(
             f"{asset}: No asset found. Try with another name or the ISIN of your asset."
         )
 
 
 def get_historical_data(bourso_ticker: str) -> pd.DataFrame:
+    """Use the API of boursorama to get the historical quotes of the asset"""
     req = requests.get(
         f"https://www.boursorama.com/bourse/action/graph/ws/GetTicksEOD?symbol={bourso_ticker}&length=7300&period=0"
     )
@@ -340,6 +358,7 @@ def get_historical_data(bourso_ticker: str) -> pd.DataFrame:
     df = pd.merge(date_df, df, how="left", on="date")
     # forward fill missing values
     df = df.ffill()
+
     return df
 
 if __name__ == '__main__':

@@ -1,7 +1,3 @@
-import os
-import sys
-import time
-from datetime import date, datetime, timedelta
 from itertools import chain
 from pathlib import Path
 from typing import Iterable
@@ -13,31 +9,31 @@ import plotly.express as px
 import plotly.graph_objects as go
 import srsly
 import streamlit as st
-from attrs import asdict, field
+from attrs import asdict
 from attrs.filters import exclude
 from icecream import ic
 
 # sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from src.data_extraction import (
-    DATE_FORMAT,
     Asset,
     compute_perf,
     date_to_str,
     get_current_asset_data,
-    get_historical_data,
 )
 from src.portfolio import Portfolio
 
+# page config
 st.set_page_config(
     page_title="Asset visualizer", layout="wide", initial_sidebar_state="expanded"
 )
 st.title("Asset visualizer")
 
 # Create data/json, data/parquet if they do not exist
-for save_path in ["data/jsonl", "data/db"]:
+for save_path in ["data/jsonl", "data/operations"]:
     Path(save_path).mkdir(parents=True, exist_ok=True)
 
+# Portfolio name, accept user input
 ptf_name = st.text_input(
     "Name of the portfolio (This name will be used the save and load your portfolio.)",
     st.session_state.get("ptf_name", "MyPortfolio"),
@@ -45,11 +41,12 @@ ptf_name = st.text_input(
     key="ptf_name",
 )
 
-
+# Load it
 portfolio = Portfolio(ptf_name)
 st.session_state["name_isin"] = {
     (a.name, a.isin) for a in portfolio.dict_of_assets.values()
 }
+
 
 def plot_piechart(data: Iterable, cat_name: str = "name", value: str = "value"):
     """Extract varible names and their values.
@@ -64,6 +61,7 @@ def plot_piechart(data: Iterable, cat_name: str = "name", value: str = "value"):
 
 
 def ptf_piechart(iter_of_dicts: Iterable):
+    """Pie chart for portfolio"""
     d = {}
     for i, dict_ in enumerate(iter_of_dicts):
         d[dict_["name"]] = d.get(dict_["name"], 0) + dict_["value"]
@@ -74,11 +72,15 @@ def ptf_piechart(iter_of_dicts: Iterable):
 
 
 def plot_historical_chart(df: pd.DataFrame, name: str, isin: str):
+    """Plot historical chart"""
     fig = px.line(df, x="date", y="c", title=f"{name} - {isin}")
     return fig
 
+
+# Sidebar
 with st.form("sidebar"):
     with st.sidebar:
+        # User input for isin
         asset = st.text_input(
             "Enter an ISIN. You may also enter a name or a ticker, but you might get some errors."
             "\nPrefilled with MC, the ticker of LVMH stock.",
@@ -89,6 +91,7 @@ with st.form("sidebar"):
         adding_to_portfolio = st.checkbox("Add to your portfolio", True)
         submitted = st.form_submit_button("Submit")
         if submitted:
+            # scrap first result associated to the user input
             st.write(f"Asset: {asset}")
             asset_obj = Asset.from_boursorama(get_current_asset_data(asset))
             st.header(f"Name: {asset_obj.name}")
@@ -98,6 +101,7 @@ with st.form("sidebar"):
                 asset_as_dict["lastDividende"]["date"] = date_to_str(
                     asset_as_dict["lastDividende"]["date"]
                 )
+            # display the data
             st.dataframe(
                 asset_as_dict,
                 column_config={0: "property", 1: "value"},
@@ -107,14 +111,17 @@ with st.form("sidebar"):
             asset_comp, historic_chart = st.tabs(
                 ["Asset composition", "Historical prices"]
             )
+
             with asset_comp:
-                st.subheader(f"Asset composition")
+                # Plot asset composition
+                st.subheader("Asset composition")
                 asset_comp_chart = plot_piechart(
                     asset_as_dict["assetsComposition"], "name", "value"
                 )
                 st.plotly_chart(asset_comp_chart, use_container_width=True)
 
             with historic_chart:
+                # plot historical chart
                 st.subheader(f"Historical prices {asset_as_dict['currency']}")
                 perf_dict = pd.DataFrame(
                     [
@@ -137,13 +144,16 @@ with st.form("sidebar"):
                     )
                 )
 
-operations_col, details_col= st.tabs(["Portfolio Operations", "Portfolio details"])
+# Body
+operations_col, details_col = st.tabs(["Portfolio Operations", "Portfolio details"])
 
 ## Portfolio tab
 with details_col:
     if submitted and adding_to_portfolio:
+        # Add to dict of assets the new asset
         portfolio.dict_of_assets[asset_obj.isin] = asset_obj
         st.session_state["name_isin"].add((asset_obj.isin, asset_obj.name))
+        # Update jsonl
         srsly.write_jsonl(
             portfolio.jsonl_ptf_path,
             [
@@ -153,6 +163,7 @@ with details_col:
         )
 
     with st.expander("Followed assets"):
+        # summary of followed assets in an expandable window
         ptf_df = pd.DataFrame(
             [
                 {
@@ -173,6 +184,7 @@ with details_col:
 
         ptf_df.insert(0, "in_ptf", True)
         with st.form("update_assets"):
+            # To modify the followed assets
             ptf_df = st.data_editor(
                 ptf_df,
                 column_config={
@@ -194,30 +206,48 @@ with details_col:
                 srsly.write_jsonl(
                     portfolio.jsonl_ptf_path,
                     [
-                        asdict(dict_of_assets[a])
+                        asdict(portfolio.dict_of_assets[a])
                         for a in portfolio.dict_of_assets
                         if a in set(chain.from_iterable(keep_isin))
                     ],
                 )
                 st.rerun()
 
+    # If there are some operations, display summary and stats about the portfolio
     if len(portfolio.operations_df["isin"]) > 0:
+        # Summary by asset
         st.subheader("Portfolio lines")
         st.dataframe(
             portfolio.assets_summary.round(2),
             hide_index=True,
             column_config={"operations": None},
         )
+
+        # Portfolio summary
         st.subheader("Overall stats")
         st.dataframe(portfolio.portfolio_summary.round(2), hide_index=True)
+
+        # Historical chart
         filled_area_plot = px.area(
             portfolio.asset_values, x="date", y="value", color="name"
         )
         st.subheader("Historical records")
         st.plotly_chart(filled_area_plot, use_container_width=True)
 
+        # Map French asset terminology to their English counterpart
+        asset_types = {
+            "actions": "stock",
+            "obligations": "bond",
+            "immobilier": "real estate",
+            "matières premières": "commodities",
+            "liquidités": "cash",
+            "autres": "other",
+        }
         total_assets_comp = [
-            {"name": d["name"], "value": d["value"] * k}
+            {
+                "name": asset_types.get(d["name"].lower(), d["name"]),
+                "value": d["value"] * k,
+            }
             for i, (a, k) in enumerate(
                 zip(
                     portfolio.assets_summary["isin"].tolist(),
@@ -226,14 +256,16 @@ with details_col:
             )
             for d in portfolio.dict_of_assets[a].assetsComposition
         ]
-        ic(portfolio.assets_summary)
+
         ptf_asset_comp, ptf_asset_proportion = st.columns(2)
         with ptf_asset_comp:
+            # Asset types repartition
             st.subheader("Portfolio asset repartition")
             ptf_asset_comp_chart = ptf_piechart(total_assets_comp)
             st.plotly_chart(ptf_asset_comp_chart, use_container_width=True)
 
         with ptf_asset_proportion:
+            # Chart of assets
             st.subheader("Proportion of each asset in your portfolio")
             proportion_fig = px.pie(
                 portfolio.assets_summary,
@@ -242,6 +274,7 @@ with details_col:
                 title="Proportion of each asset in your portfolio",
             )
             st.plotly_chart(proportion_fig, use_container_width=True)
+
 
 with operations_col:
     st.subheader("Portfolio operations")
@@ -280,6 +313,7 @@ with operations_col:
                         argB = st.number_input("Quantity", value=1.0, min_value=0.001)
                         argA = st.number_input("Price", min_value=0.00)
                     else:  # sell
+                        # Do not allow to sell more assets that we own
                         try:
                             copy_operations_df = portfolio.operations_df.copy()
                             asset_operations = duckdb.sql(
@@ -309,7 +343,6 @@ with operations_col:
                             # Disable add operation button
                             st.session_state["invalid_operation"] = 1
                 elif operation_type == "Dividend":
-
                     argA = st.number_input("Dividend value", min_value=0.01)
 
             elif st.session_state.get("operation_type_add", None) == "Split":
@@ -368,10 +401,12 @@ with operations_col:
                     placeholder="Row number to remove",
                 )
             except Exception as e:
-                # st.write(e)
+                # Cannot remove an operation if there is no operation registered.
+                print(e)
                 st.write("Please add an operation before trying to remove one.")
             delete_row = st.form_submit_button("Delete row")
             if delete_row:
+                # Keep all the operations except the n_th
                 duckdb.sql(
                     f"""
                  WITH row_nb_table AS (
