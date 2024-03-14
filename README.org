@@ -810,6 +810,14 @@ class Portfolio:
 * Streamlit
 - Use streamlit to run the webapp
 - run it by opening a terminal at the project locationby typing ~streamlit run app.py~
+
+Some screenshots :
+- Operation tab
+[[./operations_tab.png]]
+- Portfolio tab
+[[./portfolio_tab1.png]]
+[[./portfolio_tab2.png]]
+
 ** Code :noexport:
 :properties:
 :header-args:python: :tangle app.py
